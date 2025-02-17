@@ -17,14 +17,10 @@ setup(
     author="Christian Calderón Orellana",
     author_email="cvcalderon@gmail.com",
     url="https://github.com/cvcalderon/simfleetdatabridge",
-    packages=find_packages(where='simfleetdatabridge'),
+    packages=find_packages(include=["simfleetdatabridge"]),
     package_dir={'': 'simfleetdatabridge'},
     install_requires=requirements,
     license="MIT license",
-    entry_points={
-        'console_scripts': [
-            'SimfleetDataBridge=simfleetdatabridge.cli:main',
-        ],
-    },
+    entry_points={"console_scripts": ["SimfleetDataBridge=simfleetdatabridge.cli:main"]},
     keywords="simfleetdatabridge",
 )
