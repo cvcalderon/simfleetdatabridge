@@ -128,38 +128,53 @@ class LlmBase:
 
     def seconds_to_scaled_time(self, seconds: int) -> str:
         """
-        Converts real seconds to scaled time (HH:MM).
+        Converts real seconds to scaled time (HH:MM AM/PM).
 
         1 real second = 1 scaled minute
         60 real seconds = 1 scaled hour
         1440 real seconds = 24 scaled hours (1 full scaled day)
 
         Parameters:
-            seconds (int): Number of real seconds to convert.
+            seconds (int): Number of real seconds to convert. Must be non-negative.
 
         Returns:
-            str: Scaled time in 'HH:MM' format.
+            str: Scaled time in 'HH:MM AM/PM' format.
         """
+        if seconds < 0:
+            raise ValueError("Seconds cannot be negative.")
+
         scaled_minutes = seconds  # Each real second equals 1 scaled minute
-        hours = (scaled_minutes // 60) % 24  # Keep the format within 24 hours
+        hours_24 = (scaled_minutes // 60) % 24  # Keep the format within 24 hours
         minutes = scaled_minutes % 60
-        return f"{hours:02}:{minutes:02}"
+
+        # Convert 24-hour format to 12-hour format with AM/PM
+        period = "AM" if hours_24 < 12 else "PM"
+        hours_12 = hours_24 % 12
+        if hours_12 == 0:
+            hours_12 = 12  # Convert 00:xx to 12:xx AM
+
+        return f"{hours_12:02}:{minutes:02} {period}"
+
 
     def scaled_time_to_seconds(self, scaled_time: str) -> int:
         """
-        Converts a scaled time (HH:MM) to real seconds.
+        Converts a scaled time (HH:MM AM/PM) to real seconds.
 
         1 scaled minute = 1 real second
         1 scaled hour = 60 real seconds
         24 scaled hours = 1440 real seconds (1 full scaled day)
 
         Parameters:
-            scaled_time (str): Scaled time in 'HH:MM' format.
+            scaled_time (str): Scaled time in 'HH:MM AM/PM' format.
 
         Returns:
             int: Equivalent time in real seconds.
         """
-        hours, minutes = map(int, scaled_time.split(":"))
-        scaled_minutes = (hours * 60) + minutes  # Convert to total scaled minutes
-        real_seconds = scaled_minutes  # 1 scaled minute = 1 real second
-        return real_seconds
+        try:
+            # Convert to 24-hour format using datetime
+            time_obj = datetime.strptime(scaled_time, "%I:%M %p")
+            hours, minutes = time_obj.hour, time_obj.minute
+
+            return (hours * 60) + minutes  # Convert to total scaled minutes
+        except ValueError:
+            raise ValueError("Invalid input format. Expected 'HH:MM AM/PM'.")
