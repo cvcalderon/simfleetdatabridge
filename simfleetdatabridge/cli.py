@@ -57,33 +57,35 @@ def run_simfleetai(base_dir, name, framework_config, profiles, sim_config):
                 "To create a new simulation, you must provide --framework-config, --profiles, and --sim-config.")
             sys.exit(1)
 
-        # Create directory structure
-        os.makedirs(os.path.join(sim_path, "config/simulation_config"), exist_ok=True)
-        os.makedirs(os.path.join(sim_path, "Agents/decisions"), exist_ok=True)
-        os.makedirs(os.path.join(sim_path, "LogsForDays/days"), exist_ok=True)
+        # Create directory structure with new names
+        os.makedirs(os.path.join(sim_path, "config/simfleet"), exist_ok=True)
+        os.makedirs(os.path.join(sim_path, "agents/decisions"), exist_ok=True)
+        os.makedirs(os.path.join(sim_path, "metrics/days"), exist_ok=True)
 
         # Configure loguru to write logs to the simulation log file
         log_file = os.path.join(sim_path, "simulation.log")
         logger.add(log_file, rotation="10 MB", retention="10 days", level="INFO")
 
-        # Copy configuration files
+        # Copy framework_config.json
         shutil.copy(framework_config, os.path.join(sim_path, "config/framework_config.json"))
-        shutil.copy(profiles, os.path.join(sim_path, "config/profiles.json"))
 
-        # Rename and copy the sim-config file
-        sim_config_name = os.path.basename(sim_config)
-        new_sim_config_name = f"1_day_{sim_config_name}"
-        new_sim_config_path = os.path.join(sim_path, "config/simulation_config", new_sim_config_name)
+        # Move profiles.json and memory.json to agents/
+        shutil.copy(profiles, os.path.join(sim_path, "agents/profiles.json"))
 
-        shutil.copy(sim_config, new_sim_config_path)
-
-        # Create an empty memory.json file if it does not exist
-        memory_path = os.path.join(sim_path, "config/memory.json")
+        # Create an empty memory.json if it doesn't exist
+        memory_path = os.path.join(sim_path, "agents/memory.json")
         if not os.path.exists(memory_path):
             with open(memory_path, "w") as f:
                 json.dump({}, f, indent=4)
 
-        # Generate current date and time dynamically
+        # Rename and move the sim-config file to simfleet/
+        sim_config_name = os.path.basename(sim_config)
+        new_sim_config_name = f"0_day_{sim_config_name}"
+        new_sim_config_path = os.path.join(sim_path, "config/simfleet", new_sim_config_name)
+
+        shutil.copy(sim_config, new_sim_config_path)
+
+        # Generate dynamic creation date
         creation_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Save simulation metadata
@@ -105,6 +107,7 @@ def run_simfleetai(base_dir, name, framework_config, profiles, sim_config):
 
     # Start the decision-making engine
     engine = app_engine(base_dir, name, framework_config)
+
     asyncio.run(run_engine(engine))
 
 
