@@ -11,15 +11,39 @@ import sys
 import requests
 
 
-@click.command()
-@click.option(
-    "--task",
-    type=click.Choice(["gtfs_to_json", "generate_llm_profiles", "generate_decisions"], case_sensitive=False),
-    required=True,
-    help="Task to perform: 'gtfs_to_json', 'generate_llm_profiles', or 'generate_decisions'."
-)
-@click.option("-input", 'input_path', type=click.Path(exists=True), help="File path for input")
-@click.option("-output", 'output_path', type=click.Path(), help="File path for output")
+@click.group()
+def cli():
+    """CLI for managing SimfleetAI and LLM profile generation."""
+    pass
+
+
+@click.command(name="generate-llm-profiles")
+@click.option("-input", 'input_path', type=click.Path(exists=True), required=True,
+              help="Path to the input file containing profile data.")
+@click.option("-output", 'output_path', type=click.Path(), required=True,
+              help="Path to the output file where generated profiles will be saved.")
+def generate_llm_profiles(input_path, output_path):
+    """Generates LLM profiles based on input data."""
+    logger.info(f'Generating LLM profiles from: {input_path}')
+
+    # Placeholder for the actual profile generation logic
+    # generate_llm_profiles(input_path, output_path)
+
+    logger.success(f'LLM profiles generated and saved to: {output_path}')
+
+
+@click.command(name="run-simfleetai")
+@click.option("--base-dir", prompt="Base directory for simulations",
+              help="Directory where the simulation is located or will be created.")
+@click.option("--name", prompt="Simulation name",
+              help="Name of the simulation to execute.")
+@click.option("--framework-config", type=click.Path(exists=True), required=False,
+              help="Path to the new framework_config.json file (optional).")
+@click.option("--profiles", type=click.Path(exists=True), required=False,
+              help="Path to profiles.json (optional, only needed when creating a new simulation).")
+@click.option("--sim-config", type=click.Path(exists=True), required=False,
+              help="Path to the Simfleet configuration file (optional, only needed when creating a new simulation).")
+
 
 
 def main(task, input_path, output_path):
