@@ -46,6 +46,51 @@ def generate_llm_profiles(input_path, output_path):
 
 
 
+
+async def run_engine(engine):
+    """Runs the simulation engine asynchronously."""
+    loop = asyncio.get_running_loop()
+    stop_event = asyncio.Event()
+    loop.add_signal_handler(signal.SIGINT, stop_event.set)
+
+    try:
+        await engine.start()
+        await engine.run()
+
+        while not engine.is_finished():
+            await asyncio.sleep(0.5)
+
+        await engine.stop()
+        logger.success("Simulation completed successfully.")
+        sys.exit(0)
+
+    except Exception as e:
+        logger.error(f"Error during execution: {e}")
+        sys.exit(1)
+
+
+def app_engine(base_dir, name, framework_config):
+    """Creates a simulation engine instance using base_dir, name, and framework_config."""
+    sim_path = os.path.join(base_dir, name)
+
+    if not os.path.exists(sim_path):
+        logger.error(f"Simulation '{name}' not found in '{base_dir}'.")
+        sys.exit(1)
+
+    framework_config_path = os.path.join(sim_path, "config/framework_config.json")
+
+    # If a new framework_config.json is provided, copy it to the simulation directory
+    if framework_config:
+        shutil.copy(framework_config, framework_config_path)
+        logger.info(f"Configuration file updated at: {framework_config_path}")
+
+    # Create the simulation engine instance
+    instance = EngineAgent(config=framework_config_path, output=sim_path)
+    logger.info(f"Simulation engine initialized for '{name}' in '{sim_path}'")
+
+    return instance
+
+
 def main(task, input_path, output_path):
     """Runs the selected task based on user input."""
 
@@ -71,35 +116,35 @@ def main(task, input_path, output_path):
     else:
         click.echo("Invalid task selected.")
 
+    #
+    # async def run_engine():
+    #     loop = asyncio.get_running_loop()
+    #     stop_event = asyncio.Event()
+    #     loop.add_signal_handler(signal.SIGINT, stop_event.set)
+    #
+    #     try:
+    #         await engine.start()
+    #
+    #         await engine.run()
+    #
+    #         while not engine.is_finished():
+    #             await asyncio.sleep(0.5)
+    #
+    #         await engine.stop()
+    #
+    #         sys.exit(0)
+    #
+    #     except Exception as e:
+    #         logger.error(f"An error occurred: {e}")
+    #         sys.exit(0)
+    #
+    # spade.run(run_engine())
 
-    async def run_engine():
-        loop = asyncio.get_running_loop()
-        stop_event = asyncio.Event()
-        loop.add_signal_handler(signal.SIGINT, stop_event.set)
-
-        try:
-            await engine.start()
-
-            await engine.run()
-
-            while not engine.is_finished():
-                await asyncio.sleep(0.5)
-
-            await engine.stop()
-
-            sys.exit(0)
-
-        except Exception as e:
-            logger.error(f"An error occurred: {e}")
-            sys.exit(0)
-
-    spade.run(run_engine())
-
-def app_engine(llm_conf=None, output=None):
-
-    instance = EngineAgent(config=llm_conf, output=output)
-
-    return instance
+# def app_engine(llm_conf=None, output=None):
+#
+#     instance = EngineAgent(config=llm_conf, output=output)
+#
+#     return instance
 
 if __name__ == '__main__':
     main()
