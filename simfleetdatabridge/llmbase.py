@@ -23,7 +23,7 @@ class LlmBase:
 
         # LLM configuration
         self.model_config = {}
-        self.actions_config = {}
+        self.actions = {}
 
         # Session for LLM connection #TEST
         self.session = requests.Session()

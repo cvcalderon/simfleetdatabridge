@@ -27,6 +27,7 @@ class EngineAgent(Agent, LlmBase):
 
         self.agents_action = None
         self.next_day = None
+        self.actual_day = None
 
         self.status = None
         self.stopped = False
@@ -277,51 +278,69 @@ class EngineBehaviour(State):
     def check_options_all_agents(self):
         all_agents_actions = {}
 
-        # Extraemos las opciones de transporte de los perfiles en un solo paso
+        # Extraemos los perfiles y las opciones de transporte
+        profile_data = self.agent.profiles  # Información de los perfiles
         profile_transport_modes = {
-            profile_name: set(profile_data.get("environment", {}).get("transport_options", []))
-            for profile_name, profile_data in self.agent.profiles.items()
+            profile_name: set(profile_info.get("environment", {}).get("transport_options", []))
+            for profile_name, profile_info in profile_data.items()
         }
 
-        # Verificamos que self.agent.actions exista y tenga acciones
-        #actions = getattr(self.agent, "actions", {}).get("actions", {})
+        # Obtener todas las acciones posibles
+        available_actions = self.agent.actions["actions"]
 
         # Iteramos sobre cada agente
         for agent_name in self.agent.get_agent_names():
             memory_agent = self.agent.get_agent_memory_info(agent_name)
 
-            # Obtener el primer departure_time si existe
-            departure_time = next(
-                (entry.get("departure_time") for entry in memory_agent if "departure_time" in entry),
-                None
-            )
-
             # Extraer modos de transporte ya usados
-            used_actions = {entry.get("transport_mode") for entry in memory_agent if "transport_mode" in entry}
+            used_actions = {entry["transport_mode"] for entry in memory_agent if
+                            "transport_mode" in entry and entry["transport_mode"] is not None}
 
             # Obtener los transportes permitidos según su perfil
             available_transports = profile_transport_modes.get(agent_name, set())
 
-            # Buscar la primera acción válida
-            selected_action = next(
-                (
-                    {
-                        "action_name": action_name,
-                        "class_path": action_info["class_path"],
-                        "strategy_path": action_info["strategy_path"],
-                        "departure_time": departure_time
-                    }
-                    for action_name, action_info in self.agent.actions["actions"].items()
-                    if action_name not in used_actions and action_name in available_transports
-                ),
-                None  # Si no hay ninguna acción válida, se asigna None
-            )
+            # **Si el agente ya ha usado todas sus opciones de transporte, omitirlo**
+            if used_actions == available_transports:
+                logger.info(
+                    f"{agent_name} has already used all the transport options. Omitting in this iteration.")
+                continue  # No procesa este agente
 
-            # Solo agregamos al diccionario si hay una acción válida
-            if selected_action:
-                all_agents_actions[agent_name] = selected_action
+            # Determinar departure_time
+            if memory_agent:
+                # Usar el último departure_time si existe
+                departure_time = memory_agent[-1]["departure_time"]
+            else:
+                # Si no hay memoria, obtener arrival_time_limit del perfil y restar 10 minutos
+                arrival_time_limit = profile_data.get(agent_name, {}).get("environment", {}).get("arrival_time_limit",
+                                                                                                 {}).get("time")
+                if arrival_time_limit:
+                    try:
+                        arrival_time = datetime.strptime(arrival_time_limit, "%I:%M %p")
+                        departure_time = (arrival_time - timedelta(minutes=10)).strftime("%I:%M %p")
+                    except ValueError:
+                        logger.error(f"Incorrect time format for {agent_name}: {arrival_time_limit}")
+                        departure_time = None
+                else:
+                    departure_time = None
 
-        logger.warning("DEBUG 0.1: {} ".format(all_agents_actions))
+            # Filtrar acciones válidas (solo transportes aún no usados)
+            valid_actions = [
+                {
+                    "action_name": action_name,
+                    "class_path": available_actions[action_name]["class_path"],
+                    "strategy_path": available_actions[action_name]["strategy_path"],
+                    "departure_time": departure_time
+                }
+                for action_name in available_transports
+                if action_name in available_actions and action_name not in used_actions
+            ]
+
+            # Dejar la elección final al LLM
+            if valid_actions:
+                all_agents_actions[agent_name] = valid_actions
+
+        # Logging mejorado
+        #logger.debug("Available actions for LLM:\n%s", json.dumps(all_agents_actions, indent=4))
 
         return all_agents_actions
 
@@ -603,6 +622,94 @@ class EngineBehaviour(State):
 #                                                              #
 ################################################################
 
+class EngineDecisionMakingState(EngineBehaviour):
+    async def on_start(self):
+        await super().on_start()
+        self.agent.status = DECISION_MAKING
+        logger.debug("{} in Decision making State".format(self.agent.jid))
+
+    async def run(self):
+
+
+        new_decisions = {}
+
+        self.agent.agents_action = self.check_options_all_agents()
+
+        # Mejora -> 1) Probar opciones de manera estatica o 2) Probar opciones dichas por el LLM
+        # Encontrar perfiles sin procesar
+
+        logger.warning("DEBUG 1: {} ".format(len(self.agent.agents_action)))
+
+        if len(self.agent.agents_action) < len(self.agent.profiles.keys()):
+            logger.warning("DEBUG 3.1: {} ".format(set(self.agent.profiles.keys())))
+            logger.warning("DEBUG 3.2: {} ".format(set(self.agent.agents_action.keys())))
+            perfiles_sin_procesar = set(self.agent.profiles.keys()) - set(self.agent.agents_action.keys())
+            logger.warning("DEBUG 3: {} ".format(perfiles_sin_procesar))
+
+            #perfiles_sin_procesar = self.agent.profiles.keys()
+            #logger.warning("DEBUG 2: {} ".format(perfiles_sin_procesar))
+
+        else:
+            self.set_next_state(PREPARE_OUTPUT)
+            return
+
+        for agent_name in perfiles_sin_procesar:
+
+            # if self.agent.agents_action[agent_name] is None:
+
+            profile = self.agent.get_agent_info(agent_name)
+            past_memory = self.agent.get_agent_memory_info(agent_name)
+
+            # Obtener la mejor opción de transporte para el siguiente día
+            decision = await self.make_decision(agent_name, profile, past_memory)
+
+            if decision:
+                new_decisions[agent_name] = decision["decision"]
+
+                # Extraer la información sugerida
+                suggested_departure_time = decision["decision"].get("suggested_departure_time")
+                suggested_transport_mode = decision["decision"].get("suggested_transport_mode")
+
+                # Obtener el agente correspondiente
+                # agent = self.agents.get(agent_name)
+                # if agent and hasattr(agent, "actions") and "actions" in agent.actions:
+                agent_actions = self.agent.actions["actions"]
+                # Extraer el strategy_path correspondiente al modo sugerido
+
+                if suggested_transport_mode in agent_actions:
+                    action_path = agent_actions[suggested_transport_mode].get("class_path")
+                    strategy_path = agent_actions[suggested_transport_mode].get("strategy_path")
+                else:
+                    action_path = None
+                    strategy_path = None
+                # else:
+                #    action_path = None
+                #    strategy_path = None
+
+                # decisions_result[agent_name] = {
+                self.agent.agents_action[agent_name] = {
+                    "action_name": suggested_transport_mode,
+                    "class_path": action_path,
+                    "strategy_path": strategy_path,
+                    "depature_time": suggested_departure_time
+                }
+
+
+        # Verificar si ya existe un archivo para ese día en la carpeta days
+        dest_file = f"LlmDecisionMaking/Agents/decisions/{self.agent.next_day+1}_day_decisions.json"
+        if os.path.exists(dest_file):
+            logger.debug(f"El archivo para el día {self.agent.next_day} ya existe.")
+
+        with open(dest_file, "w") as f:
+            json.dump(new_decisions, f, indent=4)
+
+        logger.info("[DecisionMakingBehaviour] Decision process completed.")
+
+        if self.agent.agents_action != None:
+            #self.agent.stopped = True
+            self.set_next_state(PREPARE_OUTPUT)
+            return
+
 class EnginePrepareMemoryState(EngineBehaviour):
     async def on_start(self):
         await super().on_start()
@@ -652,13 +759,13 @@ class EnginePrepareMemoryState(EngineBehaviour):
             self.process_events(events=events, day=self.agent.next_day)
 
         #if max_day < len(self.agent.actions):
-        self.agent.agents_action = self.check_options_all_agents()
+        #self.agent.agents_action = self.check_options_all_agents()
 
         self.set_next_state(DECISION_MAKING)
         return
 
 
-class EngineDecisionMakingState(EngineBehaviour):
+class EngineDecisionMakingState_old(EngineBehaviour):
     async def on_start(self):
         await super().on_start()
         self.agent.status = DECISION_MAKING
