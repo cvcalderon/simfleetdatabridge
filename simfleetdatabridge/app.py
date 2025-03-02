@@ -5,7 +5,7 @@ from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour, State, FSMBehaviour
 
 from simfleetdatabridge.llmbase import LlmBase
-from simfleetdatabridge.utils import oneshot_request_llm, verify_and_create_structure
+from simfleetdatabridge.utils import oneshot_request_llm
 
 from loguru import logger
 
@@ -20,10 +20,9 @@ class EngineAgent(Agent, LlmBase):
 
     def __init__(self, config, sim_path, jid="engine@localhost", password="secret"):
         super().__init__(jid=jid, password=password)
-        LlmMixin.__init__(self)
+        LlmBase.__init__(self, sim_path)    # Initialize LlmBase with the simulation path
 
         self.config = config  # LLM engine config
-        self.llm_config = None
         self.path = sim_path  # Simulation Path file
 
         self.agents_action = None
@@ -47,15 +46,10 @@ class EngineAgent(Agent, LlmBase):
         Loads profiles and memory from JSON files.
         """
 
-        if verify_and_create_structure is False:
-            logger.info(f"LlmDecisionMaking has been created")
-            self.stopped = True
-
+        #New simulation
+        self.load_framework_config(self.config) # Load framework config - actions + llm
         self.load_agent_profiles()  # Cargar perfiles
         self.load_memory()  # Cargar memoria
-        self.load_actions() # Cargar acciones
-
-        self.llm_config = self.load_llm_connection()
 
 
     async def run(self):

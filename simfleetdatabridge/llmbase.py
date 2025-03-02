@@ -19,9 +19,11 @@ class LlmBase:
         # Data structures
         self.profiles = {}
         self.memory = {}
-        self.actions = {}
         self.decisions = {}
-        self.llm_config = {}
+
+        # LLM configuration
+        self.model_config = {}
+        self.actions_config = {}
 
         # Session for LLM connection #TEST
         self.session = requests.Session()
@@ -43,6 +45,29 @@ class LlmBase:
         except Exception as e:
             logger.exception(f"Unexpected error while loading {file_path}: {e}")
         return {}
+
+########################## Config #############################
+
+    def load_framework_config(self, config_path: str):
+        """
+        Loads the framework configuration from a JSON file and stores it in class variables.
+
+        :param config_path: Path to the framework configuration JSON file.
+        """
+        config_data = self._load_json_file(config_path)
+        if not config_data:
+            logger.error("Failed to load framework configuration.")
+            return
+
+        # Store configuration in class variables
+        self.model_config = config_data.get("model_config", {})
+        self.actions_config = config_data.get("actions", {})
+
+        logger.info("Framework configuration successfully loaded.")
+        logger.info(f"Model Configuration: {self.model_config}")
+        logger.info(f"Actions Configuration: {self.actions_config}")
+
+########################## Profiles ###########################
 
     def load_agent_profiles(self):
         """Loads agent profiles from the respective JSON file."""
@@ -68,15 +93,12 @@ class LlmBase:
     ######################## Memory #########################
 
     def load_memory(self):
-        """
-        Loads the agent's memory from the memory.json file.
-        """
-        self.memory = self._load_json_file(self.MEMORY_FILE)
+        """Loads agent memory from the respective JSON file."""
+        memory_file = os.path.join(self.sim_path, "agents/memory.json")
+        self.memory = self._load_json_file(memory_file)
 
     def get_agent_memory_info(self, agent_name):
-        """
-        Returns the memory data for a given agent.
-        """
+        """Returns memory information for a specific agent."""
         return self.memory.get(agent_name, {})
 
     def load_json_conf(self, path):
@@ -92,13 +114,6 @@ class LlmBase:
         """
         return self._load_json_file(self.LLM_CONFIG)
 
-    ######################## Actions #########################
-
-    def load_actions(self):
-        """
-        Loads available actions from the actions.json file.
-        """
-        self.actions = self._load_json_file(self.ACTIONS_FILE)
 
     ######################## Decisions #########################
 
