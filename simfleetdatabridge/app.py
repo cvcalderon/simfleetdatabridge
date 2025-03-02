@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour, State, FSMBehaviour
@@ -329,7 +330,7 @@ class EngineBehaviour(State):
                     "action_name": action_name,
                     "class_path": available_actions[action_name]["class_path"],
                     "strategy_path": available_actions[action_name]["strategy_path"],
-                    "departure_time": departure_time
+                    "departure_time": str(departure_time)
                 }
                 for action_name in available_transports
                 if action_name in available_actions and action_name not in used_actions
@@ -343,6 +344,64 @@ class EngineBehaviour(State):
         #logger.debug("Available actions for LLM:\n%s", json.dumps(all_agents_actions, indent=4))
 
         return all_agents_actions
+
+    def load_latest_simfleet_config(self, directory: str) -> tuple:
+        """
+        Searches for and loads the SimFleet configuration file with the highest number of days.
+
+        Args:
+            directory (str): Path to the directory containing the configuration files.
+
+        Returns:
+            tuple: A tuple containing:
+                - The number of days (int).
+                - The original filename without "X_day_" (str).
+                - The content of the latest configuration JSON file (dict).
+
+        Raises:
+            FileNotFoundError: If no valid configuration file is found.
+            ValueError: If there is an issue loading the JSON file.
+        """
+        try:
+            config_files = [f for f in os.listdir(directory) if f.endswith(".json")]
+        except FileNotFoundError:
+            logger.error(f"Directory '{directory}' does not exist.")
+            raise FileNotFoundError(f"Directory '{directory}' does not exist.")
+
+        # Regular expression to capture the number of days and the rest of the filename
+        pattern = re.compile(r"(\d+)_day_(.+\.json)")
+
+        latest_config = None
+        latest_clean_name = None
+        latest_days = -1
+
+        for file in config_files:
+            match = pattern.match(file)
+            if match:
+                days = int(match.group(1))
+                clean_name = match.group(2)  # Parte del nombre sin el número de días y "_day_"
+                if days > latest_days:
+                    latest_days = days
+                    latest_config = file
+                    latest_clean_name = clean_name
+
+        if not latest_config:
+            logger.error("No valid configuration file found.")
+            raise FileNotFoundError("No valid configuration file found.")
+
+        latest_config_path = os.path.join(directory, latest_config)
+        logger.info(f"Loading configuration from: {latest_config_path}")
+
+        # Load the JSON file
+        try:
+            with open(latest_config_path, "r") as f:
+                config_data = json.load(f)
+            logger.info(f"Configuration '{latest_clean_name}' loaded successfully.")
+            return latest_days, latest_clean_name, config_data
+        except json.JSONDecodeError:
+            logger.error(f"Error loading JSON file: {latest_config_path}")
+            raise ValueError(f"Error loading JSON file: {latest_config_path}")
+
 
     async def make_decision(self, agent_name, profile, past_memory):
         """
@@ -710,6 +769,55 @@ class EngineDecisionMakingState(EngineBehaviour):
             self.set_next_state(PREPARE_OUTPUT)
             return
 
+class EnginePrepareOutputState(EngineBehaviour):
+    async def on_start(self):
+        await super().on_start()
+        self.agent.status = PREPARE_OUTPUT
+        logger.debug("{} in Prepare output State".format(self.agent.jid))
+
+    async def run(self):
+        #logger.info("{} arrived at its destination".format(self.agent.jid))
+
+        simfleet_path = os.path.join(self.agent.path, "config/simfleet")
+
+        day, name, sim_config = self.load_latest_simfleet_config(simfleet_path)
+        decisions = self.agent.agents_action
+
+        logger.warning("DEBUG 2: {} in Prepare output State".format(decisions))
+
+        for customer in sim_config.get("customers", []):
+            customer_name = customer.get("name")
+            if customer_name in decisions:
+                decision = decisions[customer_name]
+                # Actualizar delay usando depature_time (conversión a segundos)
+                dep_time = decision.get("depature_time")
+                if dep_time:
+                    customer["delay"] = self.agent.scaled_time_to_seconds(str(dep_time))
+                else:
+                    logger.debug(f"Advertencia: No se encontró 'depature_time' para {customer_name}.")
+                # Actualizar class y strategy
+                customer["class"] = decision.get("class_path", customer.get("class"))
+                customer["strategy"] = decision.get("strategy_path", customer.get("strategy"))
+            else:
+                logger.debug(f"Advertencia: No hay decisión para el cliente {customer_name}.")
+
+        self.agent.actual_day = day + 1
+
+        end_path = os.path.join(simfleet_path, (day+1)+"_day_"+name)
+        # Verificar si ya existe un archivo para ese día en la carpeta days
+        #dest_file = f"LlmDecisionMaking/Config/days/{self.agent.next_day+1}_day_config_simulation.json"
+        #dest_path = os.path.join(simfleet_path, end_path)
+        if os.path.exists(end_path):
+            logger.debug(f"El archivo para el día {day} ya existe.")
+
+        with open(dest_file, 'w') as f:
+            json.dump(end_path, f, indent=4)
+
+        # (Opcional) Si se desea mover en vez de copiar, se puede borrar el original:
+        #os.remove('LlmDecisionMaking/Config/config_simulation.json')
+
+        #self.agent.stopped = True
+
 class EnginePrepareMemoryState(EngineBehaviour):
     async def on_start(self):
         await super().on_start()
@@ -899,50 +1007,6 @@ class EngineDecisionMakingState_old(EngineBehaviour):
             #self.agent.stopped = True
             self.set_next_state(PREPARE_OUTPUT)
             return
-
-
-class EnginePrepareOutputState(EngineBehaviour):
-    async def on_start(self):
-        await super().on_start()
-        self.agent.status = PREPARE_OUTPUT
-        logger.debug("{} in Prepare output State".format(self.agent.jid))
-
-    async def run(self):
-        #logger.info("{} arrived at its destination".format(self.agent.jid))
-
-        sim_config = self.agent.load_json_conf(self.agent.config)
-        decisions = self.agent.agents_action
-
-        logger.warning("DEBUG 2: {} in Prepare output State".format(decisions))
-
-        for customer in sim_config.get("customers", []):
-            customer_name = customer.get("name")
-            if customer_name in decisions:
-                decision = decisions[customer_name]
-                # Actualizar delay usando depature_time (conversión a segundos)
-                dep_time = decision.get("depature_time")
-                if dep_time:
-                    customer["delay"] = self.agent.scaled_time_to_seconds(dep_time)
-                else:
-                    logger.debug(f"Advertencia: No se encontró 'depature_time' para {customer_name}.")
-                # Actualizar class y strategy
-                customer["class"] = decision.get("class_path", customer.get("class"))
-                customer["strategy"] = decision.get("strategy_path", customer.get("strategy"))
-            else:
-                logger.debug(f"Advertencia: No hay decisión para el cliente {customer_name}.")
-
-        # Verificar si ya existe un archivo para ese día en la carpeta days
-        dest_file = f"LlmDecisionMaking/Config/days/{self.agent.next_day+1}_day_config_simulation.json"
-        if os.path.exists(dest_file):
-            logger.debug(f"El archivo para el día {self.agent.next_day+1} ya existe.")
-
-        with open(dest_file, 'w') as f:
-            json.dump(sim_config, f, indent=4)
-
-        # (Opcional) Si se desea mover en vez de copiar, se puede borrar el original:
-        #os.remove('LlmDecisionMaking/Config/config_simulation.json')
-
-        self.agent.stopped = True
 
 
 
