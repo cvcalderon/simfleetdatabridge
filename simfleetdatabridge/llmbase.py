@@ -5,75 +5,60 @@ import os
 
 
 class LlmBase:
-    # Definimos los nombres de los archivos usados en el sistema
-    PROFILE_FILE = "LlmDecisionMaking/Agents/profiles.json"
-    MEMORY_FILE = "LlmDecisionMaking/Agents/memory.json"
-    ACTIONS_FILE = "LlmDecisionMaking/Agents/actions.json"
-    DECISIONS_FILE = "LlmDecisionMaking/Agents/decisions/1_day_decisions.json"
-    LLM_CONFIG = "LlmDecisionMaking/llm_config.json"
+    """
+    Base class for agents that interact with an LLM.
+    Provides methods to load agent profiles, memory, and decisions.
+    """
 
-    def __init__(self):
+    def __init__(self, sim_path):
         """
-        Initializes the LlmMixin with default structures for agent data.
+        Initializes LlmBase with the simulation base path.
         """
-        # Colective parameters
+        self.sim_path = sim_path  # Base simulation directory
+
+        # Data structures
         self.profiles = {}
-        self.environment = {}
         self.memory = {}
-        self.decisions = {}
         self.actions = {}
+        self.decisions = {}
+        self.llm_config = {}
 
-        # Individual parameters
-        self.persona = {}
-        self.personal_environment = {}
-        self.personal_memory = {}
-        self.personal_decisions = {}
-
-        # Agent connection LLM (same connection)
+        # Session for LLM connection #TEST
         self.session = requests.Session()
 
-    @staticmethod
-    def _load_json_file(file_path):
+    def _load_json_file(self, file_path):
         """
         Loads a JSON file and returns its content.
-        If the file does not exist or is invalid, logs an error and returns an empty dictionary.
+        If the file is missing or has an invalid format, returns an empty dictionary.
         """
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 data = json.load(file)
-                logger.info(f"Successfully loaded {file_path}")
+                logger.info(f"Successfully loaded file: {file_path}")
                 return data if isinstance(data, dict) else {}
         except FileNotFoundError:
-            logger.error(f"Error: {file_path} was not found.")
+            logger.error(f"Error: File not found: {file_path}.")
         except json.JSONDecodeError:
-            logger.error(f"Error: {file_path} does not have a valid JSON format.")
+            logger.error(f"Error: Invalid JSON format in {file_path}.")
         except Exception as e:
             logger.exception(f"Unexpected error while loading {file_path}: {e}")
         return {}
 
     def load_agent_profiles(self):
-        """
-        Loads agent profiles from the profiles.json file.
-        """
-        self.profiles = self._load_json_file(self.PROFILE_FILE)
+        """Loads agent profiles from the respective JSON file."""
+        profile_file = os.path.join(self.sim_path, "agents/profiles.json")
+        self.profiles = self._load_json_file(profile_file)
 
     def get_number_of_agents(self):
-        """
-        Returns the number of agent profiles loaded.
-        """
+        """Returns the number of agents loaded in profiles."""
         return len(self.profiles)
 
     def get_agent_names(self):
-        """
-        Returns a list of agent names (keys) from the profiles.
-        """
+        """Returns a list of agent names."""
         return list(self.profiles.keys())
 
     def get_agent_info(self, agent_name, key=None):
-        """
-        Returns the content of a specific key for a given agent.
-        If the key is not provided, returns the full agent profile.
-        """
+        """Returns the information of a specific agent."""
         agent_data = self.profiles.get(agent_name)
         if agent_data is None:
             logger.warning(f"Agent '{agent_name}' not found.")
