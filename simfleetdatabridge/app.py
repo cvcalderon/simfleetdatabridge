@@ -4,7 +4,7 @@ import os
 from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour, State, FSMBehaviour
 
-from simfleetdatabridge.LLMixin import LlmMixin
+from simfleetdatabridge.llmbase import LlmBase
 from simfleetdatabridge.utils import oneshot_request_llm, verify_and_create_structure
 
 from loguru import logger
@@ -13,18 +13,18 @@ PREPARE_MEMORY = "PREPARE_MEMORY"
 DECISION_MAKING = "DECISION_MAKING"
 PREPARE_OUTPUT = "PREPARE_OUTPUT"
 
-class EngineAgent(Agent, LlmMixin):
+class EngineAgent(Agent, LlmBase):
     """
     After these tasks are done in the Simulator constructor, the simulation is started when the ``run`` method is called.
     """
 
-    def __init__(self, config, output, jid="engine@localhost", password="secret"):
+    def __init__(self, config, sim_path, jid="engine@localhost", password="secret"):
         super().__init__(jid=jid, password=password)
         LlmMixin.__init__(self)
 
-        self.config = config  # Configuración del archivo entrada Simfleet
+        self.config = config  # LLM engine config
         self.llm_config = None
-        self.output = output  # Donde se almacenan los resultados
+        self.path = sim_path  # Simulation Path file
 
         self.agents_action = None
         self.next_day = None

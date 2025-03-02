@@ -108,7 +108,6 @@ def run_simfleetai(base_dir, name, framework_config, profiles, sim_config):
     asyncio.run(run_engine(engine))
 
 
-
 async def run_engine(engine):
     """Runs the simulation engine asynchronously."""
     loop = asyncio.get_running_loop()
@@ -147,15 +146,18 @@ def app_engine(base_dir, name, framework_config):
         logger.info(f"Configuration file updated at: {framework_config_path}")
 
     # Create the simulation engine instance
-    instance = EngineAgent(config=framework_config_path, output=sim_path)
+    instance = EngineAgent(config=framework_config_path, sim_path=sim_path)
     logger.info(f"Simulation engine initialized for '{name}' in '{sim_path}'")
 
     return instance
 
 
-
+# Add commands to the CLI group
+cli.add_command(generate_llm_profiles)
+cli.add_command(run_simfleetai)
 
 if __name__ == '__main__':
-    main()
+    cli()
+
 
 

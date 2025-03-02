@@ -4,7 +4,7 @@ import json
 import os
 
 
-class LlmMixin:
+class LlmBase:
     # Definimos los nombres de los archivos usados en el sistema
     PROFILE_FILE = "LlmDecisionMaking/Agents/profiles.json"
     MEMORY_FILE = "LlmDecisionMaking/Agents/memory.json"
