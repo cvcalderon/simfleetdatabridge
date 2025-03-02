@@ -1,14 +1,15 @@
 import click
 from simfleetdatabridge.app import EngineAgent
-from simfleetdatabridge.transformer import transform_gtfs_to_json
-from logger import logger
+from loguru import logger
 
 import spade
 import asyncio
 import signal
 import sys
-
-import requests
+import os
+import json
+import shutil
+from datetime import datetime
 
 
 @click.group()
@@ -43,7 +44,68 @@ def generate_llm_profiles(input_path, output_path):
               help="Path to profiles.json (optional, only needed when creating a new simulation).")
 @click.option("--sim-config", type=click.Path(exists=True), required=False,
               help="Path to the Simfleet configuration file (optional, only needed when creating a new simulation).")
+def run_simfleetai(base_dir, name, framework_config, profiles, sim_config):
+    """Runs a simulation with SimfleetAI, creating or loading the simulation as needed."""
+    sim_path = os.path.join(base_dir, name)
+    is_new_simulation = not os.path.exists(sim_path)
 
+    if is_new_simulation:
+        logger.info(f"Simulation '{name}' not found. Creating a new one...")
+
+        if not framework_config or not profiles or not sim_config:
+            logger.error(
+                "To create a new simulation, you must provide --framework-config, --profiles, and --sim-config.")
+            sys.exit(1)
+
+        # Create directory structure
+        os.makedirs(os.path.join(sim_path, "config/simulation_config"), exist_ok=True)
+        os.makedirs(os.path.join(sim_path, "Agents/decisions"), exist_ok=True)
+        os.makedirs(os.path.join(sim_path, "LogsForDays/days"), exist_ok=True)
+
+        # Configure loguru to write logs to the simulation log file
+        log_file = os.path.join(sim_path, "simulation.log")
+        logger.add(log_file, rotation="10 MB", retention="10 days", level="INFO")
+
+        # Copy configuration files
+        shutil.copy(framework_config, os.path.join(sim_path, "config/framework_config.json"))
+        shutil.copy(profiles, os.path.join(sim_path, "config/profiles.json"))
+
+        # Rename and copy the sim-config file
+        sim_config_name = os.path.basename(sim_config)
+        new_sim_config_name = f"1_day_{sim_config_name}"
+        new_sim_config_path = os.path.join(sim_path, "config/simulation_config", new_sim_config_name)
+
+        shutil.copy(sim_config, new_sim_config_path)
+
+        # Create an empty memory.json file if it does not exist
+        memory_path = os.path.join(sim_path, "config/memory.json")
+        if not os.path.exists(memory_path):
+            with open(memory_path, "w") as f:
+                json.dump({}, f, indent=4)
+
+        # Generate current date and time dynamically
+        creation_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Save simulation metadata
+        metadata = {
+            "name": name,
+            "base_directory": base_dir,
+            "full_path": sim_path,
+            "created_at": creation_date,
+            "status": "initialized"
+        }
+        with open(os.path.join(sim_path, "metadata.json"), "w") as f:
+            json.dump(metadata, f, indent=4)
+
+        logger.success(f"New simulation '{name}' created in {sim_path}")
+        logger.info(f"Simfleet configuration file saved as: {new_sim_config_path}")
+
+    else:
+        logger.info(f"Loading existing simulation '{name}' from {sim_path}")
+
+    # Start the decision-making engine
+    engine = app_engine(base_dir, name, framework_config)
+    asyncio.run(run_engine(engine))
 
 
 
@@ -91,60 +153,7 @@ def app_engine(base_dir, name, framework_config):
     return instance
 
 
-def main(task, input_path, output_path):
-    """Runs the selected task based on user input."""
 
-    #response = requests.post("http://ollama.gti-ia.upv.es/api/generate", json={"model": "llama3.3:70b", "prompt": "Your prompt here"})
-
-    #print(response.text)
-
-    #sys.exit(0)
-
-    if task == "gtfs_to_json":
-        click.echo(f'Processing GTFS file: {input_path}')
-        transform_gtfs_to_json(input_path, output_path)
-        click.echo(f'Generated JSON file: {output_path}')
-    elif task == "generate_llm_profiles":
-        click.echo(f'Generating LLM profiles from: {input_path}')
-        #generate_llm_profiles(input_path, output_path)
-        click.echo(f'Generated LLM profiles: {output_path}')
-    elif task == "generate_decisions":
-        click.echo(f'Generating decisions from: {input_path}')
-
-        engine = app_engine(llm_conf=input_path, output=output_path)
-
-    else:
-        click.echo("Invalid task selected.")
-
-    #
-    # async def run_engine():
-    #     loop = asyncio.get_running_loop()
-    #     stop_event = asyncio.Event()
-    #     loop.add_signal_handler(signal.SIGINT, stop_event.set)
-    #
-    #     try:
-    #         await engine.start()
-    #
-    #         await engine.run()
-    #
-    #         while not engine.is_finished():
-    #             await asyncio.sleep(0.5)
-    #
-    #         await engine.stop()
-    #
-    #         sys.exit(0)
-    #
-    #     except Exception as e:
-    #         logger.error(f"An error occurred: {e}")
-    #         sys.exit(0)
-    #
-    # spade.run(run_engine())
-
-# def app_engine(llm_conf=None, output=None):
-#
-#     instance = EngineAgent(config=llm_conf, output=output)
-#
-#     return instance
 
 if __name__ == '__main__':
     main()
