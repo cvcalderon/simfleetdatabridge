@@ -6,62 +6,6 @@ import requests
 import re
 import os
 
-# ------------------ Estructura carpetas --------------------
-
-BASE_DIR = "LlmDecisionMaking"
-STRUCTURE = {
-    "Agents": {
-        "decisions": {"1_day_decisions.json": {}},
-        "actions.json": {},
-        "memory.json": {},
-        "profiles.json": {},
-    },
-    "LogsForDays": {
-        "days": {"1_day_events_simulation.json": {}},
-        "events_simulation.json": {},
-    },
-    "Config": {
-        "days": {},
-        "config_simulation.json": {},
-    },
-    "llm_config.json": {}
-}
-
-
-@staticmethod
-def verify_and_create_structure():
-    """
-    Verifies if the directory structure and necessary files exist.
-    If any file or folder is missing, it creates them with default values.
-    """
-
-    base_dir = True
-
-    for folder, contents in STRUCTURE.items():
-        folder_path = os.path.join(BASE_DIR, folder)
-
-        # Crear carpeta si no existe
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
-            logger.warning(f"The directory: {folder_path} dont exist")
-            logger.info(f"Created directory: {folder_path}")
-            base_dir = False
-
-        for file_name, default_content in contents.items():
-            file_path = os.path.join(folder_path, file_name) if isinstance(default_content, dict) else folder_path
-
-            # Si es un archivo, crearlo si no existe
-            if isinstance(default_content, dict):  # Es un archivo JSON
-                if not os.path.exists(file_path):
-                    with open(file_path, "w", encoding="utf-8") as file:
-                        json.dump(default_content, file, indent=4)
-                    logger.info(f"Created file: {file_path}")
-            else:  # Es una subcarpeta
-                sub_folder_path = os.path.join(folder_path, file_name)
-                if not os.path.exists(sub_folder_path):
-                    os.makedirs(sub_folder_path)
-                    logger.info(f"Created subdirectory: {sub_folder_path}")
-    return base_dir
 
 # ------------------ Llamadas LLM --------------------
 
