@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import asyncio
+import subprocess
 
 from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour, State, FSMBehaviour
@@ -13,6 +15,7 @@ from loguru import logger
 PREPARE_MEMORY = "PREPARE_MEMORY"
 DECISION_MAKING = "DECISION_MAKING"
 PREPARE_OUTPUT = "PREPARE_OUTPUT"
+RUN_SIMULATION = "RUN_SIMULATION"
 
 class EngineAgent(Agent, LlmBase):
     """
@@ -803,26 +806,63 @@ class EnginePrepareOutputState(EngineBehaviour):
 
         self.agent.actual_day = day + 1
 
-        end_path = os.path.join(simfleet_path, (day+1)+"_day_"+name)
+        end_path = os.path.join(simfleet_path, self.agent.actual_day+"_day_"+name)
         # Verificar si ya existe un archivo para ese día en la carpeta days
         #dest_file = f"LlmDecisionMaking/Config/days/{self.agent.next_day+1}_day_config_simulation.json"
         #dest_path = os.path.join(simfleet_path, end_path)
         if os.path.exists(end_path):
             logger.debug(f"El archivo para el día {day} ya existe.")
 
-        with open(dest_file, 'w') as f:
-            json.dump(end_path, f, indent=4)
+        self.agent.path = end_path
+
+        with open(end_path, 'w') as f:
+            json.dump(sim_config, f, indent=4)
 
         # (Opcional) Si se desea mover en vez de copiar, se puede borrar el original:
         #os.remove('LlmDecisionMaking/Config/config_simulation.json')
 
         #self.agent.stopped = True
+        self.set_next_state(RUN_SIMULATION)
+        return
 
-class EnginePrepareMemoryState(EngineBehaviour):
+class EngineRunSimulationState(State):
     async def on_start(self):
         await super().on_start()
-        self.agent.status = PREPARE_MEMORY
-        logger.debug("{} in Prepare memory State".format(self.agent.jid))
+        self.agent.status = RUN_SIMULATION
+        self.retries = 0  # Retry counter
+        logger.debug(f"{self.agent.jid} in Run Simulation State")
+
+    async def run(self):
+        while self.retries < 3:
+            try:
+                logger.info(f"Attempt {self.retries + 1} of 3: Running Simfleet...")
+
+                process = await asyncio.create_subprocess_exec(
+                    "simfleet", "--config", self.agent.path, "--run",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+
+                # Read output in real-time
+                async for line in process.stdout:
+                    logger.info(f"Simfleet: {line.decode().strip()}")
+
+                return_code = await process.wait()
+
+                if return_code == 0:
+                    logger.info(f"{self.agent.jid} simulation finished successfully.")
+                    self.set_next_state("PREPARE_MEMORY")  # Transition to next state
+                    return  # Exit the loop
+
+                else:
+                    logger.warning(f"Simfleet failed with exit code {return_code}. Retrying...")
+                    self.retries += 1
+
+            except Exception as e:
+                logger.error(f"Error running Simfleet: {e}")
+                self.retries += 1
+
+        logger.error(f"{self.agent.jid} reached maximum retry attempts. Finishing...")
+        self.agent.stopped = True  # Transition to error - finish
 
     async def run(self):
 
@@ -871,142 +911,6 @@ class EnginePrepareMemoryState(EngineBehaviour):
 
         self.set_next_state(DECISION_MAKING)
         return
-
-
-class EngineDecisionMakingState_old(EngineBehaviour):
-    async def on_start(self):
-        await super().on_start()
-        self.agent.status = DECISION_MAKING
-        logger.debug("{} in Decision making State".format(self.agent.jid))
-
-    async def run(self):
-
-
-        new_decisions = {}
-        #decisions_result = {}
-
-        #if self.agent.agents_action != None:
-        #    #self.agent.stopped = True
-        #    self.set_next_state(PREPARE_OUTPUT)
-        #    return
-
-        #if len(self.agent.agents_action) != len(self.agent.get_agent_names):
-
-        # Encontrar perfiles sin procesar
-
-        logger.warning("DEBUG 1: {} ".format(len(self.agent.agents_action)))
-
-        if len(self.agent.agents_action) < len(self.agent.profiles.keys()):
-            logger.warning("DEBUG 3.1: {} ".format(set(self.agent.profiles.keys())))
-            logger.warning("DEBUG 3.2: {} ".format(set(self.agent.agents_action.keys())))
-            perfiles_sin_procesar = set(self.agent.profiles.keys()) - set(self.agent.agents_action.keys())
-            logger.warning("DEBUG 3: {} ".format(perfiles_sin_procesar))
-
-            #perfiles_sin_procesar = self.agent.profiles.keys()
-            #logger.warning("DEBUG 2: {} ".format(perfiles_sin_procesar))
-
-        else:
-            self.set_next_state(PREPARE_OUTPUT)
-            return
-
-        for agent_name in perfiles_sin_procesar:
-
-            # if self.agent.agents_action[agent_name] is None:
-
-            profile = self.agent.get_agent_info(agent_name)
-            past_memory = self.agent.get_agent_memory_info(agent_name)
-
-            # Obtener la mejor opción de transporte para el siguiente día
-            decision = await self.make_decision(agent_name, profile, past_memory)
-
-            if decision:
-                new_decisions[agent_name] = decision["decision"]
-
-                # Extraer la información sugerida
-                suggested_departure_time = decision["decision"].get("suggested_departure_time")
-                suggested_transport_mode = decision["decision"].get("suggested_transport_mode")
-
-                # Obtener el agente correspondiente
-                # agent = self.agents.get(agent_name)
-                # if agent and hasattr(agent, "actions") and "actions" in agent.actions:
-                agent_actions = self.agent.actions["actions"]
-                # Extraer el strategy_path correspondiente al modo sugerido
-
-                if suggested_transport_mode in agent_actions:
-                    action_path = agent_actions[suggested_transport_mode].get("class_path")
-                    strategy_path = agent_actions[suggested_transport_mode].get("strategy_path")
-                else:
-                    action_path = None
-                    strategy_path = None
-                # else:
-                #    action_path = None
-                #    strategy_path = None
-
-                # decisions_result[agent_name] = {
-                self.agent.agents_action[agent_name] = {
-                    "action_name": suggested_transport_mode,
-                    "class_path": action_path,
-                    "strategy_path": strategy_path,
-                    "depature_time": suggested_departure_time
-                }
-
-
-        # for agent_name in self.agent.get_agent_names():
-        #
-        #     #if self.agent.agents_action[agent_name] is None:
-        #
-        #     profile = self.agent.get_agent_info(agent_name)
-        #     past_memory = self.agent.get_agent_memory_info(agent_name)
-        #
-        #     # Obtener la mejor opción de transporte para el siguiente día
-        #     decision = await self.make_decision(agent_name, profile, past_memory)
-        #
-        #     if decision:
-        #         new_decisions[agent_name] = decision["decision"]
-        #
-        #         # Extraer la información sugerida
-        #         suggested_departure_time = decision["decision"].get("suggested_departure_time")
-        #         suggested_transport_mode = decision["decision"].get("suggested_transport_mode")
-        #
-        #         # Obtener el agente correspondiente
-        #         #agent = self.agents.get(agent_name)
-        #         #if agent and hasattr(agent, "actions") and "actions" in agent.actions:
-        #         agent_actions = self.agent.actions["actions"]
-        #         # Extraer el strategy_path correspondiente al modo sugerido
-        #
-        #         if suggested_transport_mode in agent_actions:
-        #             action_path = agent_actions[suggested_transport_mode].get("class_path")
-        #             strategy_path = agent_actions[suggested_transport_mode].get("strategy_path")
-        #         else:
-        #             action_path = None
-        #             strategy_path = None
-        #         #else:
-        #         #    action_path = None
-        #         #    strategy_path = None
-        #
-        #         decisions_result[agent_name] = {
-        #             "action_name": suggested_transport_mode,
-        #             "class_path": action_path,
-        #             "strategy_path": strategy_path,
-        #             "depature_time": suggested_departure_time
-        #         }
-
-        #self.agent.agents_action = decisions_result
-
-        # Verificar si ya existe un archivo para ese día en la carpeta days
-        dest_file = f"LlmDecisionMaking/Agents/decisions/{self.agent.next_day+1}_day_decisions.json"
-        if os.path.exists(dest_file):
-            logger.debug(f"El archivo para el día {self.agent.next_day} ya existe.")
-
-        with open(dest_file, "w") as f:
-            json.dump(new_decisions, f, indent=4)
-
-        logger.info("[DecisionMakingBehaviour] Decision process completed.")
-
-        if self.agent.agents_action != None:
-            #self.agent.stopped = True
-            self.set_next_state(PREPARE_OUTPUT)
-            return
 
 
 
