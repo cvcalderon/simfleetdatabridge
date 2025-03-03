@@ -25,11 +25,6 @@ import requests
 def main(task, input_path, output_path):
     """Runs the selected task based on user input."""
 
-    #response = requests.post("http://ollama.gti-ia.upv.es/api/generate", json={"model": "llama3.3:70b", "prompt": "Your prompt here"})
-
-    #print(response.text)
-
-    #sys.exit(0)
 
     if task == "gtfs_to_json":
         click.echo(f'Processing GTFS file: {input_path}')
