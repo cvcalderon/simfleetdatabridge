@@ -860,12 +860,12 @@ class EnginePrepareMemoryState(EngineBehaviour):
         #max_day = max((trip.get('day', 0) for trips in memory.values() for trip in trips), default=0)
 
         # Planifica el siguiente día
-        self.agent.next_day = max_day + 1
+        #self.agent.next_day = max_day + 1
 
         # Verificar si ya existe un archivo para ese día en la carpeta days
-        dest_file = f"LlmDecisionMaking/LogsForDays/days/{self.agent.next_day}_day_events_simulation.json"
-        if os.path.exists(dest_file):
-            logger.debug(f"El archivo para el día {self.agent.next_day} ya existe.")
+        #dest_file = f"LlmDecisionMaking/LogsForDays/days/{self.agent.next_day}_day_events_simulation.json"
+        #if os.path.exists(dest_file):
+        #    logger.debug(f"El archivo para el día {self.agent.next_day} ya existe.")
 
 
         #events = self.agent.load_json_conf('LlmDecisionMaking/LogsForDays/events_simulation.json')

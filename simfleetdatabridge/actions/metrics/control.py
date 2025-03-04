@@ -43,15 +43,16 @@ class AgentsMobilityClass(BaseStatisticsClass):
         details_fields = ["cost", "transport", "distance"]
         dataframe = filtered_events.to_dataframe(event_fields=event_fields, details_fields=details_fields)
 
+        # Convertir timestamps a formato datetime
+        #dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
+
         # Calcular tiempo de espera y tiempo de viaje
-        dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
-        waiting_time = dataframe.groupby("name")["timestamp"].min()  # Primer evento
+        waiting_time = dataframe.groupby("name")["timestamp"].min()
         trip_start = dataframe[dataframe["event_type"] == "travel_to_destination"].groupby("name")["timestamp"].min()
         trip_end = dataframe[dataframe["event_type"] == "trip_completion"].groupby("name")["timestamp"].max()
 
-        # Tiempo de espera (inicio del primer evento hasta que comienza el viaje)
+        # Calcular tiempos en segundos
         waiting_time = (trip_start - waiting_time)#.dt.total_seconds()
-        # Tiempo de viaje (inicio hasta trip_completion)
         trip_time = (trip_end - trip_start)#.dt.total_seconds()
 
         # Unir métricas en un DataFrame final
@@ -66,12 +67,18 @@ class AgentsMobilityClass(BaseStatisticsClass):
             "distance": dataframe[dataframe["event_type"] == "trip_completion"].groupby("name")["distance"].first()
         }).fillna(0)
 
+        self.pedestrian_df = result_df.reset_index(drop=True)
+
+        # Calculating general averages for the "GeneralMetrics" section
+        avg_waiting_time = self.pedestrian_df["waiting_time"].mean()
+        avg_trip_time = self.pedestrian_df["trip_time"].mean()
+
         # Exportar a JSON
         json_structure = {
             "GeneralMetrics": {
                 "Class type": "LlmPedestrian",
-                "Avg Waiting Time": f"{waiting_time.mean():.2f}",
-                "Avg Trip Time": f"{trip_time.mean():.2f}"
+                "Avg Waiting Time": f"{avg_waiting_time:.2f} seconds",
+                "Avg Trip Time": f"{avg_trip_time:.2f} seconds"
             },
             "LlmPedestrian": result_df.to_dict(orient="records")
         }
@@ -101,7 +108,7 @@ class AgentsMobilityClass(BaseStatisticsClass):
         dataframe = filtered_events.to_dataframe(event_fields=event_fields, details_fields=details_fields)
 
         # Convertir timestamps a formato datetime
-        dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
+        #dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
 
         # Calcular tiempos de espera y viaje
         pivot_df = dataframe.pivot_table(index="name", columns="event_type", values="timestamp", aggfunc="first")
@@ -110,26 +117,32 @@ class AgentsMobilityClass(BaseStatisticsClass):
 
         # Obtener detalles del evento trip_completion
         trip_data = dataframe[dataframe["event_type"] == "trip_completion"].groupby("name")[
-            "timestamp", "cost", "transport", "distance"].first()
+            ["timestamp", "cost", "transport", "distance"]].first()
 
         # Crear DataFrame final con métricas
         result_df = pd.DataFrame({
             "name": dataframe.groupby("name")["name"].first(),
             "class_type": dataframe.groupby("name")["class_type"].first(),
-            "waiting_time": waiting_time.fillna(0),
-            "trip_time": trip_time.fillna(0),
+            "waiting_time": waiting_time,
+            "trip_time": trip_time,
             "trip_completion_timestamp": trip_data["timestamp"],
             "cost": trip_data["cost"],
             "transport": trip_data["transport"],
             "distance": trip_data["distance"]
         }).fillna(0)
 
+        self.taxicustomer_df = result_df.reset_index(drop=True)
+
+        # Calculating general averages for the "GeneralMetrics" section
+        avg_waiting_time = self.taxicustomer_df["waiting_time"].mean()
+        avg_trip_time = self.taxicustomer_df["trip_time"].mean()
+
         # Exportar a JSON
         json_structure = {
             "GeneralMetrics": {
                 "Class type": "TaxiCustomerAgent",
-                "Avg Waiting Time": f"{waiting_time.mean():.2f}",
-                "Avg Trip Time": f"{trip_time.mean():.2f}"
+                "Avg Waiting Time": f"{avg_waiting_time:.2f} seconds",
+                "Avg Trip Time": f"{avg_trip_time:.2f} seconds"
             },
             "TaxiCustomerAgent": result_df.to_dict(orient="records")
         }
