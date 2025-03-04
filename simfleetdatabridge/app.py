@@ -11,6 +11,8 @@ from simfleetdatabridge.llmbase import LlmBase
 from simfleetdatabridge.utils import oneshot_request_llm
 
 from loguru import logger
+from datetime import datetime, timedelta
+from pathlib import Path
 
 PREPARE_MEMORY = "PREPARE_MEMORY"
 DECISION_MAKING = "DECISION_MAKING"
@@ -27,7 +29,7 @@ class EngineAgent(Agent, LlmBase):
         LlmBase.__init__(self, sim_path)    # Initialize LlmBase with the simulation path
 
         self.config = config  # LLM engine config
-        self.path = sim_path  # Simulation Path file
+        self.path = Path(sim_path)  # Simulation Path file
 
         self.agents_action = None
         self.next_day = None
@@ -246,38 +248,6 @@ class EngineBehaviour(State):
         with open(self.agent.MEMORY_FILE, 'w') as f:
             json.dump(self.agent.memory, f, indent=4)
 
-    # def check_options_all_agents(self):
-    #     all_agents_actions = {}
-    #
-    #     # Iteramos sobre cada agente en el diccionario self.agents
-    #     for agent_name in self.agent.get_agent_names():
-    #         # Obtener la memoria del agente, que asumimos es una lista de registros
-    #         memory_agent = self.agent.get_agent_memory_info(agent_name)
-    #
-    #         # Seleccionar el departure_time del primer registro disponible (si existe)
-    #         if memory_agent and isinstance(memory_agent, list) and len(memory_agent) > 0:
-    #             departure_time = memory_agent[0].get("departure_time")
-    #         else:
-    #             departure_time = None
-    #
-    #         # Extraer los modos de transporte ya usados en la memoria
-    #         used_actions = {entry.get("transport_mode") for entry in memory_agent if "transport_mode" in entry}
-    #
-    #         selected_action = None
-    #         # Iterar sobre las acciones definidas en el JSON nuevo (dentro de la clave "actions")
-    #         for action_name, action_info in self.agent.actions["actions"].items():
-    #             if action_name not in used_actions:
-    #                 selected_action = {
-    #                     "action_name": action_name,
-    #                     "class_path": action_info["class_path"],
-    #                     "strategy_path": action_info["strategy_path"],
-    #                     "depature_time": departure_time  # Se respeta el nombre "depature_time" solicitado
-    #                 }
-    #                 break
-    #
-    #         all_agents_actions[agent_name] = selected_action
-    #
-    #     return all_agents_actions
 
     def check_options_all_agents(self):
         all_agents_actions = {}
@@ -290,7 +260,7 @@ class EngineBehaviour(State):
         }
 
         # Obtener todas las acciones posibles
-        available_actions = self.agent.actions["actions"]
+        available_actions = self.agent.actions#["actions"]
 
         # Iteramos sobre cada agente
         for agent_name in self.agent.get_agent_names():
@@ -341,7 +311,7 @@ class EngineBehaviour(State):
 
             # Dejar la elección final al LLM
             if valid_actions:
-                all_agents_actions[agent_name] = valid_actions
+                all_agents_actions[agent_name] = valid_actions[0]
 
         # Logging mejorado
         #logger.debug("Available actions for LLM:\n%s", json.dumps(all_agents_actions, indent=4))
@@ -735,7 +705,7 @@ class EngineDecisionMakingState(EngineBehaviour):
                 # Obtener el agente correspondiente
                 # agent = self.agents.get(agent_name)
                 # if agent and hasattr(agent, "actions") and "actions" in agent.actions:
-                agent_actions = self.agent.actions["actions"]
+                agent_actions = self.agent.actions#["actions"]
                 # Extraer el strategy_path correspondiente al modo sugerido
 
                 if suggested_transport_mode in agent_actions:
@@ -782,6 +752,7 @@ class EnginePrepareOutputState(EngineBehaviour):
         #logger.info("{} arrived at its destination".format(self.agent.jid))
 
         simfleet_path = os.path.join(self.agent.path, "config/simfleet")
+        simfleet_path = Path(simfleet_path)
 
         day, name, sim_config = self.load_latest_simfleet_config(simfleet_path)
         decisions = self.agent.agents_action
@@ -793,12 +764,13 @@ class EnginePrepareOutputState(EngineBehaviour):
             if customer_name in decisions:
                 decision = decisions[customer_name]
                 # Actualizar delay usando depature_time (conversión a segundos)
-                dep_time = decision.get("depature_time")
+                dep_time = decision.get("departure_time")
                 if dep_time:
                     customer["delay"] = self.agent.scaled_time_to_seconds(str(dep_time))
                 else:
                     logger.debug(f"Advertencia: No se encontró 'depature_time' para {customer_name}.")
                 # Actualizar class y strategy
+                logger.warning("DEBUG 2.2: {} ".format(decision.get("class_path", customer.get("class"))))
                 customer["class"] = decision.get("class_path", customer.get("class"))
                 customer["strategy"] = decision.get("strategy_path", customer.get("strategy"))
             else:
@@ -806,7 +778,8 @@ class EnginePrepareOutputState(EngineBehaviour):
 
         self.agent.actual_day = day + 1
 
-        end_path = os.path.join(simfleet_path, self.agent.actual_day+"_day_"+name)
+        end_path = os.path.join(simfleet_path, str(self.agent.actual_day) + "_day_" + name)
+        end_path = Path(end_path)
         # Verificar si ya existe un archivo para ese día en la carpeta days
         #dest_file = f"LlmDecisionMaking/Config/days/{self.agent.next_day+1}_day_config_simulation.json"
         #dest_path = os.path.join(simfleet_path, end_path)
@@ -838,7 +811,7 @@ class EngineRunSimulationState(State):
                 logger.info(f"Attempt {self.retries + 1} of 3: Running Simfleet...")
 
                 process = await asyncio.create_subprocess_exec(
-                    "simfleet", "--config", self.agent.path, "--run",
+                    "simfleet", "--config", self.agent.path, "-r",
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
 
@@ -850,7 +823,7 @@ class EngineRunSimulationState(State):
 
                 if return_code == 0:
                     logger.info(f"{self.agent.jid} simulation finished successfully.")
-                    self.set_next_state("PREPARE_MEMORY")  # Transition to next state
+                    self.set_next_state(PREPARE_MEMORY)  # Transition to next state
                     return  # Exit the loop
 
                 else:
@@ -864,12 +837,19 @@ class EngineRunSimulationState(State):
         logger.error(f"{self.agent.jid} reached maximum retry attempts. Finishing...")
         self.agent.stopped = True  # Transition to error - finish
 
+
+class EnginePrepareMemoryState(EngineBehaviour):
+    async def on_start(self):
+        await super().on_start()
+        self.agent.status = PREPARE_MEMORY
+        logger.debug("{} in Prepare output State".format(self.agent.jid))
+
     async def run(self):
 
-        memory = self.agent.memory
+        #memory = self.agent.memory
 
         # Calcula el día máximo en una sola línea
-        max_day = max((trip.get('day', 0) for trips in memory.values() for trip in trips), default=0)
+        #max_day = max((trip.get('day', 0) for trips in memory.values() for trip in trips), default=0)
 
         # Planifica el siguiente día
         self.agent.next_day = max_day + 1
@@ -884,7 +864,7 @@ class EngineRunSimulationState(State):
 
         #logger.warning("DEBUG 1: {} in Decision making State".format(events))
 
-        with open('LlmDecisionMaking/LogsForDays/events_simulation.json', 'r') as archivo:
+        with open('simfleet_pedestrian_metrics.json', 'r') as archivo:
             events = json.load(archivo)
 
         #logger.warning("DEBUG 2: {} in Decision making State".format(events))
@@ -917,16 +897,20 @@ class EngineRunSimulationState(State):
 class FSMEngineBehaviour(FSMBehaviour):
     def setup(self):
         # Create states
-        self.add_state(PREPARE_MEMORY, EnginePrepareMemoryState(), initial=True)
-        self.add_state(DECISION_MAKING, EngineDecisionMakingState())
+        self.add_state(DECISION_MAKING,  EngineDecisionMakingState(), initial=True)
         self.add_state(PREPARE_OUTPUT, EnginePrepareOutputState())
+        self.add_state(RUN_SIMULATION, EngineRunSimulationState())
+        self.add_state(PREPARE_MEMORY, EnginePrepareMemoryState())
 
         # Create transitions
         self.add_transition(
-            PREPARE_MEMORY, DECISION_MAKING
-        )  # waiting for messages
-        self.add_transition(
             DECISION_MAKING, PREPARE_OUTPUT
+        )
+        self.add_transition(
+            PREPARE_OUTPUT, RUN_SIMULATION
+        )
+        self.add_transition(
+            RUN_SIMULATION, PREPARE_MEMORY
         )
 
 

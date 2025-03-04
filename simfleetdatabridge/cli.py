@@ -9,11 +9,12 @@ import sys
 import os
 import json
 import shutil
+from pathlib import Path
 from datetime import datetime
 
 
 @click.group()
-def cli():
+def main():
     """CLI for managing SimfleetAI and LLM profile generation."""
     pass
 
@@ -46,8 +47,9 @@ def generate_llm_profiles(input_path, output_path):
               help="Path to the Simfleet configuration file (optional, only needed when creating a new simulation).")
 def run_simfleetai(base_dir, name, framework_config, profiles, sim_config):
     """Runs a simulation with SimfleetAI, creating or loading the simulation as needed."""
-    sim_path = os.path.join(base_dir, name)
-    is_new_simulation = not os.path.exists(sim_path)
+
+    sim_path = Path(base_dir) / name
+    is_new_simulation = not sim_path.exists()
 
     if is_new_simulation:
         logger.info(f"Simulation '{name}' not found. Creating a new one...")
@@ -57,31 +59,31 @@ def run_simfleetai(base_dir, name, framework_config, profiles, sim_config):
                 "To create a new simulation, you must provide --framework-config, --profiles, and --sim-config.")
             sys.exit(1)
 
-        # Create directory structure with new names
-        os.makedirs(os.path.join(sim_path, "config/simfleet"), exist_ok=True)
-        os.makedirs(os.path.join(sim_path, "agents/decisions"), exist_ok=True)
-        os.makedirs(os.path.join(sim_path, "metrics/days"), exist_ok=True)
+        # Create directory structure using Path
+        (sim_path / "config/simfleet").mkdir(parents=True, exist_ok=True)
+        (sim_path / "agents/decisions").mkdir(parents=True, exist_ok=True)
+        (sim_path / "metrics/days").mkdir(parents=True, exist_ok=True)
 
         # Configure loguru to write logs to the simulation log file
-        log_file = os.path.join(sim_path, "simulation.log")
-        logger.add(log_file, rotation="10 MB", retention="10 days", level="INFO")
+        log_file = sim_path / "simulation.log"
+        logger.add(str(log_file), rotation="10 MB", retention="10 days", level="INFO")
 
         # Copy framework_config.json
-        shutil.copy(framework_config, os.path.join(sim_path, "config/framework_config.json"))
+        shutil.copy(framework_config, sim_path / "config/framework_config.json")
 
         # Move profiles.json and memory.json to agents/
-        shutil.copy(profiles, os.path.join(sim_path, "agents/profiles.json"))
+        shutil.copy(profiles, sim_path / "agents/profiles.json")
 
         # Create an empty memory.json if it doesn't exist
-        memory_path = os.path.join(sim_path, "agents/memory.json")
-        if not os.path.exists(memory_path):
+        memory_path = sim_path / "agents/memory.json"
+        if not memory_path.exists():
             with open(memory_path, "w") as f:
                 json.dump({}, f, indent=4)
 
         # Rename and move the sim-config file to simfleet/
-        sim_config_name = os.path.basename(sim_config)
+        sim_config_name = Path(sim_config).name
         new_sim_config_name = f"0_day_{sim_config_name}"
-        new_sim_config_path = os.path.join(sim_path, "config/simfleet", new_sim_config_name)
+        new_sim_config_path = sim_path / "config/simfleet" / new_sim_config_name
 
         shutil.copy(sim_config, new_sim_config_path)
 
@@ -91,12 +93,12 @@ def run_simfleetai(base_dir, name, framework_config, profiles, sim_config):
         # Save simulation metadata
         metadata = {
             "name": name,
-            "base_directory": base_dir,
-            "full_path": sim_path,
+            "base_directory": str(base_dir),
+            "full_path": str(sim_path),
             "created_at": creation_date,
             "status": "initialized"
         }
-        with open(os.path.join(sim_path, "metadata.json"), "w") as f:
+        with open(sim_path / "metadata.json", "w") as f:
             json.dump(metadata, f, indent=4)
 
         logger.success(f"New simulation '{name}' created in {sim_path}")
@@ -135,13 +137,13 @@ async def run_engine(engine):
 
 def app_engine(base_dir, name, framework_config):
     """Creates a simulation engine instance using base_dir, name, and framework_config."""
-    sim_path = os.path.join(base_dir, name)
+    sim_path = Path(base_dir) / name
 
-    if not os.path.exists(sim_path):
+    if not sim_path.exists():
         logger.error(f"Simulation '{name}' not found in '{base_dir}'.")
         sys.exit(1)
 
-    framework_config_path = os.path.join(sim_path, "config/framework_config.json")
+    framework_config_path = sim_path / "config/framework_config.json"
 
     # If a new framework_config.json is provided, copy it to the simulation directory
     if framework_config:
@@ -149,18 +151,19 @@ def app_engine(base_dir, name, framework_config):
         logger.info(f"Configuration file updated at: {framework_config_path}")
 
     # Create the simulation engine instance
-    instance = EngineAgent(config=framework_config_path, sim_path=sim_path)
+    instance = EngineAgent(config=str(framework_config_path), sim_path=str(sim_path))
     logger.info(f"Simulation engine initialized for '{name}' in '{sim_path}'")
 
     return instance
 
 
 # Add commands to the CLI group
-cli.add_command(generate_llm_profiles)
-cli.add_command(run_simfleetai)
+main.add_command(generate_llm_profiles)
+main.add_command(run_simfleetai)
 
 if __name__ == '__main__':
-    cli()
+    main()
+
 
 
 
