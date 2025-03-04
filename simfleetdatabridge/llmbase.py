@@ -1,8 +1,8 @@
 import requests
 from loguru import logger
 import json
-import os
-
+from pathlib import Path
+from datetime import datetime
 
 class LlmBase:
     """
@@ -14,18 +14,19 @@ class LlmBase:
         """
         Initializes LlmBase with the simulation base path.
         """
-        self.sim_path = sim_path  # Base simulation directory
+        self.sim_path = Path(sim_path)  # Ensure sim_path is a Path object
 
         # Data structures
         self.profiles = {}
         self.memory = {}
         self.decisions = {}
+        self.environment = {}
 
         # LLM configuration
         self.model_config = {}
         self.actions = {}
 
-        # Session for LLM connection #TEST
+        # Session for LLM connection
         self.session = requests.Session()
 
     def _load_json_file(self, file_path):
@@ -33,8 +34,9 @@ class LlmBase:
         Loads a JSON file and returns its content.
         If the file is missing or has an invalid format, returns an empty dictionary.
         """
+        file_path = Path(file_path)  # Ensure file_path is a Path object
         try:
-            with open(file_path, "r", encoding="utf-8") as file:
+            with file_path.open("r", encoding="utf-8") as file:
                 data = json.load(file)
                 logger.info(f"Successfully loaded file: {file_path}")
                 return data if isinstance(data, dict) else {}
@@ -46,13 +48,11 @@ class LlmBase:
             logger.exception(f"Unexpected error while loading {file_path}: {e}")
         return {}
 
-########################## Config #############################
+    ########################## Config #############################
 
     def load_framework_config(self, config_path: str):
         """
         Loads the framework configuration from a JSON file and stores it in class variables.
-
-        :param config_path: Path to the framework configuration JSON file.
         """
         config_data = self._load_json_file(config_path)
         if not config_data:
@@ -61,17 +61,17 @@ class LlmBase:
 
         # Store configuration in class variables
         self.model_config = config_data.get("model_config", {})
-        self.actions_config = config_data.get("actions", {})
+        self.actions = config_data.get("actions", {})
 
         logger.info("Framework configuration successfully loaded.")
         logger.info(f"Model Configuration: {self.model_config}")
-        logger.info(f"Actions Configuration: {self.actions_config}")
+        logger.info(f"Actions Configuration: {self.actions}")
 
-########################## Profiles ###########################
+    ########################## Profiles ###########################
 
     def load_agent_profiles(self):
         """Loads agent profiles from the respective JSON file."""
-        profile_file = os.path.join(self.sim_path, "agents/profiles.json")
+        profile_file = self.sim_path / "agents/profiles.json"
         self.profiles = self._load_json_file(profile_file)
 
     def get_number_of_agents(self):
@@ -94,7 +94,7 @@ class LlmBase:
 
     def load_memory(self):
         """Loads agent memory from the respective JSON file."""
-        memory_file = os.path.join(self.sim_path, "agents/memory.json")
+        memory_file = self.sim_path / "agents/memory.json"
         self.memory = self._load_json_file(memory_file)
 
     def get_agent_memory_info(self, agent_name):
@@ -102,9 +102,7 @@ class LlmBase:
         return self.memory.get(agent_name, {})
 
     def load_json_conf(self, path):
-
         return self._load_json_file(path)
-
 
     ######################## LLM Connection #########################
 
@@ -114,7 +112,6 @@ class LlmBase:
         """
         return self._load_json_file(self.LLM_CONFIG)
 
-
     ######################## Decisions #########################
 
     def load_decisions(self):
@@ -122,7 +119,6 @@ class LlmBase:
         Loads previous decisions from the decisions.json file.
         """
         self.decisions = self._load_json_file(self.DECISIONS_FILE)
-
 
     ######################### Escala Hora Simulacion ##############################
 
@@ -155,7 +151,6 @@ class LlmBase:
 
         return f"{hours_12:02}:{minutes:02} {period}"
 
-
     def scaled_time_to_seconds(self, scaled_time: str) -> int:
         """
         Converts a scaled time (HH:MM AM/PM) to real seconds.
@@ -175,6 +170,6 @@ class LlmBase:
             time_obj = datetime.strptime(scaled_time, "%I:%M %p")
             hours, minutes = time_obj.hour, time_obj.minute
 
-            return (hours * 60) + minutes  # Convert to total scaled minutes
+            return ((hours * 60) + minutes) * 1  # Convert to total scaled minutes
         except ValueError:
             raise ValueError("Invalid input format. Expected 'HH:MM AM/PM'.")
