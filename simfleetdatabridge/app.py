@@ -57,6 +57,10 @@ class EngineAgent(Agent, LlmBase):
         self.load_framework_config(self.config) # Load framework config - actions + llm
         self.load_agent_profiles()  # Cargar perfiles
         self.load_memory()  # Cargar memoria
+        self.scale_range_time(
+            start_time_day=self.environment.get("start_time_day"),
+            end_time_day=self.environment.get("end_time_day")
+        )
 
 
     async def run(self):
@@ -773,8 +777,12 @@ class EnginePrepareOutputState(EngineBehaviour):
                 logger.warning("DEBUG 2.2: {} ".format(decision.get("class_path", customer.get("class"))))
                 customer["class"] = decision.get("class_path", customer.get("class"))
                 customer["strategy"] = decision.get("strategy_path", customer.get("strategy"))
+                customer["delay"] = self.agent.scaled_time_to_real_seconds(decision.get("departure_time", customer.get("delay")))
             else:
                 logger.debug(f"Advertencia: No hay decisión para el cliente {customer_name}.")
+
+        sim_config["max_time"] = self.agent.get_real_seconds_range()
+        sim_config["mobility_metrics"] = "simfleetdatabridge.actions.metrics.control.AgentsMobilityClass"
 
         self.agent.actual_day = day + 1
 

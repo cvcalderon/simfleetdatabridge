@@ -4,7 +4,7 @@ from loguru import logger
 from simfleet.utils.helpers import PathRequestException, AlreadyInDestination
 from simfleet.common.lib.customers.models.pedestrian import PedestrianAgent
 
-class PedestrianCost(PedestrianAgent):
+class LlmPedestrianAgent(PedestrianAgent):
     def __init__(self, agentjid, password):
         super().__init__(agentjid, password)
         self.distance = 0
