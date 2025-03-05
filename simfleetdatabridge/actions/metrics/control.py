@@ -4,6 +4,7 @@ from tabulate import tabulate
 from simfleet.metrics.basestatistics import BaseStatisticsClass
 from simfleet.utils.statistics import Log
 from datetime import datetime
+import json
 
 
 class AgentsMobilityClass(BaseStatisticsClass):
@@ -15,19 +16,21 @@ class AgentsMobilityClass(BaseStatisticsClass):
         Args:
             events_log (Log): A log containing all events from the simulation.
         """
+        pedestrian_metrics = self.llm_pedestrian_metrics(events_log)
+        taxi_customer_metrics = self.taxi_customer_metrics(events_log)
 
-        self.llm_pedestrian_metrics(events_log, "simfleet_pedestrian_metrics.json")
-        self.taxi_customer_metrics(events_log, "simfleet_taxicustomer_metrics.json")
+        # Generar y exportar JSON unificado
+        self.generate_combined_metrics(pedestrian_metrics, taxi_customer_metrics, "simfleet_metrics.json")
 
-        self.print_stats()
-
-    def llm_pedestrian_metrics(self, events_log: Log, file_path: str) -> None:
+    def llm_pedestrian_metrics(self, events_log: Log) -> dict:
         """
         Extrae métricas específicas para agentes de tipo LlmPedestrian.
 
         Args:
             events_log (Log): Registro de eventos de la simulación.
-            file_path (str): Ruta del archivo JSON donde se exportarán los datos.
+
+        Returns:
+            dict: Diccionario con métricas procesadas.
         """
         # Filtrar eventos del agente LlmPedestrian
         filtered_events = events_log.filter(lambda event: event.class_type == "LlmPedestrianAgent" and
@@ -36,15 +39,12 @@ class AgentsMobilityClass(BaseStatisticsClass):
 
         if not filtered_events.events:
             logger.warning("No relevant events found for LlmPedestrianAgent.")
-            return
+            return {}
 
         # Convertir eventos a DataFrame
         event_fields = ["name", "timestamp", "event_type", "class_type"]
         details_fields = ["cost", "transport", "distance"]
         dataframe = filtered_events.to_dataframe(event_fields=event_fields, details_fields=details_fields)
-
-        # Convertir timestamps a formato datetime
-        #dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
 
         # Calcular tiempo de espera y tiempo de viaje
         waiting_time = dataframe.groupby("name")["timestamp"].min()
@@ -52,8 +52,8 @@ class AgentsMobilityClass(BaseStatisticsClass):
         trip_end = dataframe[dataframe["event_type"] == "trip_completion"].groupby("name")["timestamp"].max()
 
         # Calcular tiempos en segundos
-        waiting_time = (trip_start - waiting_time)#.dt.total_seconds()
-        trip_time = (trip_end - trip_start)#.dt.total_seconds()
+        waiting_time = (trip_start - waiting_time)
+        trip_time = (trip_end - trip_start)
 
         # Unir métricas en un DataFrame final
         result_df = pd.DataFrame({
@@ -73,8 +73,7 @@ class AgentsMobilityClass(BaseStatisticsClass):
         avg_waiting_time = self.pedestrian_df["waiting_time"].mean()
         avg_trip_time = self.pedestrian_df["trip_time"].mean()
 
-        # Exportar a JSON
-        json_structure = {
+        return {
             "GeneralMetrics": {
                 "Class type": "LlmPedestrian",
                 "Avg Waiting Time": f"{avg_waiting_time:.2f} seconds",
@@ -83,15 +82,15 @@ class AgentsMobilityClass(BaseStatisticsClass):
             "LlmPedestrian": result_df.to_dict(orient="records")
         }
 
-        self.export_to_json(json_structure, file_path)
-
-    def taxi_customer_metrics(self, events_log: Log, file_path: str) -> None:
+    def taxi_customer_metrics(self, events_log: Log) -> dict:
         """
         Extrae métricas específicas para agentes de tipo TaxiCustomerAgent.
 
         Args:
             events_log (Log): Registro de eventos de la simulación.
-            file_path (str): Ruta del archivo JSON donde se exportarán los datos.
+
+        Returns:
+            dict: Diccionario con métricas procesadas.
         """
         # Filtrar eventos del agente TaxiCustomerAgent
         filtered_events = events_log.filter(lambda event: event.class_type == "TaxiCustomerAgent" and
@@ -100,20 +99,17 @@ class AgentsMobilityClass(BaseStatisticsClass):
 
         if not filtered_events.events:
             logger.warning("No relevant events found for TaxiCustomerAgent.")
-            return
+            return {}
 
         # Convertir eventos a DataFrame
         event_fields = ["name", "timestamp", "event_type", "class_type"]
         details_fields = ["cost", "transport", "distance"]
         dataframe = filtered_events.to_dataframe(event_fields=event_fields, details_fields=details_fields)
 
-        # Convertir timestamps a formato datetime
-        #dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
-
         # Calcular tiempos de espera y viaje
         pivot_df = dataframe.pivot_table(index="name", columns="event_type", values="timestamp", aggfunc="first")
-        waiting_time = (pivot_df["customer_pickup"] - pivot_df["customer_request"])#.dt.total_seconds()
-        trip_time = (pivot_df["trip_completion"] - pivot_df["customer_pickup"])#.dt.total_seconds()
+        waiting_time = (pivot_df["customer_pickup"] - pivot_df["customer_request"])
+        trip_time = (pivot_df["trip_completion"] - pivot_df["customer_pickup"])
 
         # Obtener detalles del evento trip_completion
         trip_data = dataframe[dataframe["event_type"] == "trip_completion"].groupby("name")[
@@ -137,8 +133,7 @@ class AgentsMobilityClass(BaseStatisticsClass):
         avg_waiting_time = self.taxicustomer_df["waiting_time"].mean()
         avg_trip_time = self.taxicustomer_df["trip_time"].mean()
 
-        # Exportar a JSON
-        json_structure = {
+        return {
             "GeneralMetrics": {
                 "Class type": "TaxiCustomerAgent",
                 "Avg Waiting Time": f"{avg_waiting_time:.2f} seconds",
@@ -147,16 +142,29 @@ class AgentsMobilityClass(BaseStatisticsClass):
             "TaxiCustomerAgent": result_df.to_dict(orient="records")
         }
 
-        self.export_to_json(json_structure, file_path)
-
-    def export_to_json(self, json_data: dict, file_path: str) -> None:
+    def generate_combined_metrics(self, pedestrian_metrics: dict, taxi_metrics: dict, file_path: str) -> None:
         """
-        Export the final JSON structure to a JSON file.
+        Combina métricas de LlmPedestrian y TaxiCustomerAgent en un solo JSON.
 
         Args:
-            json_data (dict): The data to be exported.
-            file_path (str): Path where the JSON file will be saved.
+            pedestrian_metrics (dict): Métricas de LlmPedestrian.
+            taxi_metrics (dict): Métricas de TaxiCustomerAgent.
+            file_path (str): Ruta del archivo JSON de salida.
         """
-        with open(file_path, 'w') as f:
-            import json
-            json.dump(json_data, f, indent=4)
+        combined_json = {
+            "SimulationMetrics": {
+                "Pedestrian": pedestrian_metrics.get("GeneralMetrics", {}),
+                "TaxiCustomer": taxi_metrics.get("GeneralMetrics", {})
+            },
+            "DetailedMetrics": {
+                "LlmPedestrianAgent": pedestrian_metrics.get("LlmPedestrian", []),
+                "TaxiCustomerAgent": taxi_metrics.get("TaxiCustomerAgent", [])
+            }
+        }
+
+        # Guardar en JSON
+        with open(file_path, "w") as json_file:
+            json.dump(combined_json, json_file, indent=4)
+
+        logger.info(f"Combined JSON exported successfully to {file_path}")
+
