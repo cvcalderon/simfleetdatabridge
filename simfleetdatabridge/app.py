@@ -30,6 +30,7 @@ class EngineAgent(Agent, LlmBase):
 
         self.config = config  # LLM engine config
         self.path = Path(sim_path)  # Simulation Path file
+        self.base_dir = Path(sim_path)
 
         self.agents_action = None
         self.next_day = None
@@ -46,6 +47,62 @@ class EngineAgent(Agent, LlmBase):
             bool: whether the simulation is finished or not.
         """
         return self.stopped
+
+    def initialize_memory(self, profiles):
+        """Inicializa la memoria si está vacía."""
+        return {agent: {"short_memory": [], "long_memory": {"by_mode": {}, "trends": {
+            "most_frequent_mode": None, "least_frequent_mode": None,
+            "most_costly_mode": None, "most_reliable_mode": None,
+            "biggest_issue": None}}} for agent in profiles}
+
+    def update_memory_with_simulation(self, memory, sim_metrics):
+        """Actualiza la memoria con los datos de la simulación y actualiza long_memory."""
+        for category in ("LlmPedestrian", "TaxiCustomerAgent"):
+            for agent_data in sim_metrics.get("DetailedMetrics", {}).get(category, []):
+                agent_name = agent_data["name"].split("@")[0]
+                if agent_name in self.get_agent_names(self):
+                    entry = {
+                        "departure_time": self.real_seconds_to_scaled_time(
+                            agent_data["trip_completion_timestamp"] - agent_data["trip_time"] - agent_data[
+                                "waiting_time"]),
+                        "arrival_time": self.real_seconds_to_scaled_time(agent_data["trip_completion_timestamp"]),
+                        "travel_time_min": round(agent_data["trip_time"],2),
+                        "waiting_time_min": round(agent_data["waiting_time"],2),
+                        "distance_km": agent_data["distance"] / 1000,
+                        "transport_mode": agent_data["transport"],
+                        "cost": agent_data["cost"],
+                        "decision_context": {"reason": "Data extracted from simulation.", "alternative_considered": [],
+                                             "satisfaction_score": None}
+                    }
+                    memory[agent_name]["short_memory"].append(entry)
+                    memory = self.update_long_memory(memory, agent_name, entry)
+        self.memory = memory
+        #return memory
+
+    def update_long_memory(self, memory, agent_name, entry):
+        """Actualiza long_memory con los datos agregados en short_memory."""
+        mode = entry["transport_mode"]
+        if mode not in memory[agent_name]["long_memory"]["by_mode"]:
+            memory[agent_name]["long_memory"]["by_mode"][mode] = {
+                "total_days": 0,
+                "avg_travel_time": 0,
+                "avg_waiting_time": 0,
+                "avg_cost": 0,
+                "reflections": {
+              "summary": "-",
+              "adjustment": "-"
+            }
+            }
+        mode_data = memory[agent_name]["long_memory"]["by_mode"][mode]
+        mode_data["total_days"] += 1
+        mode_data["avg_travel_time"] = ((mode_data["avg_travel_time"] * (mode_data["total_days"] - 1)) + entry[
+            "travel_time_min"]) / mode_data["total_days"]
+        mode_data["avg_waiting_time"] = ((mode_data["avg_waiting_time"] * (mode_data["total_days"] - 1)) + entry[
+            "waiting_time_min"]) / mode_data["total_days"]
+        mode_data["avg_cost"] = ((mode_data["avg_cost"] * (mode_data["total_days"] - 1)) + entry["cost"]) / mode_data[
+            "total_days"]
+
+        return memory
 
     async def setup(self):
         """
@@ -379,6 +436,64 @@ class EngineBehaviour(State):
             logger.error(f"Error loading JSON file: {latest_config_path}")
             raise ValueError(f"Error loading JSON file: {latest_config_path}")
 
+    def generate_travel_prompt(self, agent_profile, agent_memory):
+
+        prompt = {
+            pedestrian_id: {
+                "user_profile": agent_profile,
+                "travel_memory": agent_memory,
+                "instructions": {
+                    "task": "Your role is to analyze the user's travel history and select the optimal transportation mode for the next day while also exploring alternative options when necessary. Your decision should balance punctuality, comfort, cost, and reliability based on past performance and user preferences.",
+                    "evaluation_steps": [
+                        {
+                            "step": 1,
+                            "title": "Evaluation of Recent Travel (Short Memory)",
+                            "description": "Analyze the most recent day's travel data, including departure and arrival times, travel time, waiting time, cost, and satisfaction score. If the trip resulted in late arrival or low satisfaction, prioritize alternative options that better meet punctuality and comfort requirements."
+                        },
+                        {
+                            "step": 2,
+                            "title": "Assessment of Aggregated Data (Long Memory)",
+                            "description": "Review the historical performance of each transportation mode based on average travel time, waiting time, cost, and user satisfaction. Consider any reflections or adjustments noted in the long-term memory."
+                        },
+                        {
+                            "step": 3,
+                            "title": "Exploration of Alternative Options",
+                            "description": "If a transportation mode has insufficient historical data or has not been used recently, prioritize testing it to gather experience. If the current optimal choice has been consistently used, explore an alternative mode at a reasonable frequency."
+                        },
+                        {
+                            "step": 4,
+                            "title": "Decision-Making for the Next Day",
+                            "description": "Select the best transportation mode based on available data. If a new alternative is being explored, document the reasoning and ensure it aligns with punctuality and reliability requirements. Suggest an optimal departure time."
+                        }
+                    ],
+                    "output_requirements": {
+                        "format": "Return ONLY a valid JSON response with no additional commentary.",
+                        "structure": {
+                            "decision_context": {
+                                "reason": "Explain the reasoning behind the decision, referencing profile constraints, historical performance, and whether a new mode is being tested.",
+                                "satisfaction_score": "0.XX",
+                                "explore_alternative": "yes or no",
+                                "transport_alternative_considered": [
+                                    "list of alternative transport modes if applicable"]
+                            },
+                            "reflections": {
+                                "summary": "Provide a summary of key reflections from historical data, including insights from previous travel experiences.",
+                                "adjustment": "Describe any suggested adjustments for future trips, particularly regarding time management and mode selection."
+                            },
+                            "next_day_decision": {
+                                "suggested_departure_time": "HH:MM AM/PM",
+                                "suggested_transport_mode": "Chosen mode",
+                                "estimated_cost": "0.XX",
+                                "estimated_travel_time_min": "XX",
+                                "reasoning": "Provide a detailed explanation of why this transportation mode and departure time were chosen, considering user mobility preference."
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return json.dumps(prompt, indent=4)
 
     async def make_decision(self, agent_name, profile, past_memory):
         """
@@ -755,7 +870,7 @@ class EnginePrepareOutputState(EngineBehaviour):
     async def run(self):
         #logger.info("{} arrived at its destination".format(self.agent.jid))
 
-        simfleet_path = os.path.join(self.agent.path, "config/simfleet")
+        simfleet_path = os.path.join(self.agent.base_dir, "config/simfleet")
         simfleet_path = Path(simfleet_path)
 
         day, name, sim_config = self.load_latest_simfleet_config(simfleet_path)
@@ -872,27 +987,35 @@ class EnginePrepareMemoryState(EngineBehaviour):
 
         #logger.warning("DEBUG 1: {} in Decision making State".format(events))
 
-        with open('simfleet_pedestrian_metrics.json', 'r') as archivo:
-            events = json.load(archivo)
+        if len(self.agent.memory) == 0:
+            self.agent.memory = self.agent.initialize_memory(self.agent.get_agent_names())
+
+        with open('simfleet_metrics.json', 'r') as archivo:
+            metrics = json.load(archivo)
+
+        self.agent.update_memory_with_simulation(self.agent.memory, metrics)
+
+        shutil.copy('simfleet_metrics.json', self.agent.base_dir / "metrics/days/" + str(self.agent.actual_day) + "_day_simfleet_metrics.json")
+        os.remove('simfleet_metrics.json')
 
         #logger.warning("DEBUG 2: {} in Decision making State".format(events))
 
-        if events:
-
-            # Validar que 'events' sea una lista de diccionarios con las claves requeridas
-            required_keys = {"name", "timestamp", "event_type", "class_type", "details"}
-            if not isinstance(events, list) or not all(
-                    isinstance(e, dict) and required_keys.issubset(e.keys()) for e in events):
-                raise ValueError("La estructura de events_simulations.json no es la esperada.")
-
-            # Paso 3: Guardar el contenido validado en un nuevo archivo en la carpeta days
-            with open(dest_file, 'w') as f:
-                json.dump(events, f, indent=4)
-
-            # (Opcional) Si se desea mover en vez de copiar, se puede borrar el original:
-            os.remove('LlmDecisionMaking/LogsForDays/events_simulation.json')
-
-            self.process_events(events=events, day=self.agent.next_day)
+        # if events:
+        #
+        #     # Validar que 'events' sea una lista de diccionarios con las claves requeridas
+        #     required_keys = {"name", "timestamp", "event_type", "class_type", "details"}
+        #     if not isinstance(events, list) or not all(
+        #             isinstance(e, dict) and required_keys.issubset(e.keys()) for e in events):
+        #         raise ValueError("La estructura de events_simulations.json no es la esperada.")
+        #
+        #     # Paso 3: Guardar el contenido validado en un nuevo archivo en la carpeta days
+        #     with open(dest_file, 'w') as f:
+        #         json.dump(events, f, indent=4)
+        #
+        #     # (Opcional) Si se desea mover en vez de copiar, se puede borrar el original:
+        #
+        #
+        #     self.process_events(events=events, day=self.agent.next_day)
 
         #if max_day < len(self.agent.actions):
         #self.agent.agents_action = self.check_options_all_agents()
