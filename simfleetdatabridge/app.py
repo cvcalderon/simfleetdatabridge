@@ -71,7 +71,7 @@ class EngineAgent(Agent, LlmBase):
                         "distance_km": agent_data["distance"] / 1000,
                         "transport_mode": agent_data["transport"],
                         "cost": agent_data["cost"],
-                        "decision_context": {"reason": "Data extracted from simulation.", "alternative_considered": [],
+                        "decision_context": {"reason": "-", "alternative_considered": [],
                                              "satisfaction_score": None}
                     }
                     memory[agent_name]["short_memory"].append(entry)
@@ -321,29 +321,27 @@ class EngineBehaviour(State):
         }
 
         # Obtener todas las acciones posibles
-        available_actions = self.agent.actions#["actions"]
+        available_actions = self.agent.actions  # Diccionario de acciones con class_path y strategy_path
 
         # Iteramos sobre cada agente
         for agent_name in self.agent.get_agent_names():
             memory_agent = self.agent.get_agent_memory_info(agent_name)
 
             # Extraer modos de transporte ya usados
-            used_actions = {entry["transport_mode"] for entry in memory_agent if
-                            "transport_mode" in entry and entry["transport_mode"] is not None}
+            used_actions = {entry["transport_mode"] for entry in memory_agent if "transport_mode" in entry}
 
             # Obtener los transportes permitidos según su perfil
             available_transports = profile_transport_modes.get(agent_name, set())
 
             # **Si el agente ya ha usado todas sus opciones de transporte, omitirlo**
-            if used_actions == available_transports:
-                logger.info(
-                    f"{agent_name} has already used all the transport options. Omitting in this iteration.")
+            if used_actions.issuperset(available_transports):
+                logger.info(f"{agent_name} has already used all the transport options. Omitting in this iteration.")
                 continue  # No procesa este agente
 
             # Determinar departure_time
             if memory_agent:
                 # Usar el último departure_time si existe
-                departure_time = memory_agent[-1]["departure_time"]
+                departure_time = memory_agent[-1].get("departure_time")
             else:
                 # Si no hay memoria, obtener arrival_time_limit del perfil y restar 10 minutos
                 arrival_time_limit = profile_data.get(agent_name, {}).get("environment", {}).get("arrival_time_limit",
@@ -366,16 +364,13 @@ class EngineBehaviour(State):
                     "strategy_path": available_actions[action_name]["strategy_path"],
                     "departure_time": str(departure_time)
                 }
-                for action_name in available_transports
-                if action_name in available_actions and action_name not in used_actions
+                for action_name in available_transports - used_actions  # Diferencia de conjuntos para excluir usados
+                if action_name in available_actions
             ]
 
             # Dejar la elección final al LLM
             if valid_actions:
-                all_agents_actions[agent_name] = valid_actions[0]
-
-        # Logging mejorado
-        #logger.debug("Available actions for LLM:\n%s", json.dumps(all_agents_actions, indent=4))
+                all_agents_actions[agent_name] = valid_actions[0]  # Si hay varias, se elige la primera
 
         return all_agents_actions
 
@@ -1042,6 +1037,9 @@ class FSMEngineBehaviour(FSMBehaviour):
         )
         self.add_transition(
             RUN_SIMULATION, PREPARE_MEMORY
+        )
+        self.add_transition(
+            PREPARE_MEMORY, DECISION_MAKING
         )
 
 
