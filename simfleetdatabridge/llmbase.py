@@ -22,6 +22,10 @@ class LlmBase:
         self.decisions = {}
         self.environment = {}
 
+        #History
+        self.short_memory_history = {}  # No umbral
+        self.long_memory_history = {}  # No umbral
+
         # LLM configuration
         self.model_config = {}
         self.actions = {}

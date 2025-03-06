@@ -3,6 +3,7 @@ import os
 import re
 import asyncio
 import subprocess
+import shutil
 
 from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour, State, FSMBehaviour
@@ -32,9 +33,10 @@ class EngineAgent(Agent, LlmBase):
         self.path = Path(sim_path)  # Simulation Path file
         self.base_dir = Path(sim_path)
 
-        self.agents_action = None
+        self.agents_action = {}
         self.reflection = False
         self.actual_day = None
+        self.agent_used_actions = {}
 
         self.status = None
         self.stopped = False
@@ -55,46 +57,93 @@ class EngineAgent(Agent, LlmBase):
             "most_costly_mode": None, "most_reliable_mode": None,
             "biggest_issue": None}}} for agent in profiles}
 
-    def update_memory_with_simulation(self, memory, sim_metrics):
-        """Actualiza la memoria con los datos de la simulación y actualiza long_memory."""
-        for category in ("LlmPedestrian", "TaxiCustomerAgent"):
+    def update_memory_with_simulation(self, sim_metrics, umbral_memoria=3):
+        """Actualiza la memoria interna del agente con los datos de la simulación y mantiene short_memory dentro del umbral."""
+
+        logger.warning("DEBUG 1 - Memory: {} ".format(self.memory))
+
+        for category in ("LlmPedestrianAgent", "TaxiCustomerAgent"):
             for agent_data in sim_metrics.get("DetailedMetrics", {}).get(category, []):
                 agent_name = agent_data["name"].split("@")[0]
-                if agent_name in self.get_agent_names(self):
-                    entry = {
-                        "day": self.actual_day,
-                        "departure_time": self.real_seconds_to_scaled_time(
-                            agent_data["trip_completion_timestamp"] - agent_data["trip_time"] - agent_data[
-                                "waiting_time"]),
-                        "arrival_time": self.real_seconds_to_scaled_time(agent_data["trip_completion_timestamp"]),
-                        "travel_time_min": round(agent_data["trip_time"],2),
-                        "waiting_time_min": round(agent_data["waiting_time"],2),
-                        "distance_km": agent_data["distance"] / 1000,
-                        "transport_mode": agent_data["transport"],
-                        "cost": agent_data["cost"],
-                        "decision_context": {"reason": "-", "alternative_considered": [],
-                                             "satisfaction_score": None}
-                    }
-                    memory[agent_name]["short_memory"].append(entry)
-                    memory = self.update_long_memory(memory, agent_name, entry)
-        self.memory = memory
-        #return memory
 
-    def update_long_memory(self, memory, agent_name, entry):
+                #if agent_name in self.get_agent_names():
+                trip_completion_timestamp = agent_data["trip_completion_timestamp"]
+                trip_time = agent_data["trip_time"]
+                waiting_time = agent_data["waiting_time"]
+                transport_mode = agent_data["transport"]
+                cost = agent_data["cost"]
+                distance_km = agent_data["distance"] / 1000
+
+                entry = {
+                    "day": self.actual_day,
+                    "departure_time": self.real_seconds_to_scaled_time(
+                        trip_completion_timestamp - trip_time - waiting_time
+                    ),
+                    "arrival_time": self.real_seconds_to_scaled_time(trip_completion_timestamp),
+                    "travel_time_min": round(trip_time, 2),
+                    "waiting_time_min": round(waiting_time, 2),
+                    "distance_km": distance_km,
+                    "transport_mode": transport_mode,
+                    "cost": cost,
+                    "decision_context": {"reason": "-", "alternative_considered": [], "satisfaction_score": None},
+                }
+
+                # Inicializar memoria si no existe
+                #self.memory.setdefault(agent_name, {"short_memory": [], "long_memory": {"by_mode": {}}})
+
+                # Mantener el tamaño de short_memory dentro del umbral
+                if len(self.memory[agent_name]["short_memory"]) >= umbral_memoria:
+                    self.memory[agent_name]["short_memory"].pop(0)  # Eliminar el más antiguo
+
+                # Agregar la nueva entrada a short_memory
+                self.memory[agent_name]["short_memory"].append(entry)
+
+                logger.warning("DEBUG 2 - Memory: {} ".format(self.memory))
+
+                # Añadir al historial la short memory
+                self.short_memory_history.setdefault(agent_name, []).append(entry)
+
+                # Actualizar la memoria larga
+                self.update_long_memory(agent_name, entry)
+
+        # Guardar memoria en archivo
+        memory_path = os.path.join(self.base_dir, "agents/short_memory.json")
+        os.makedirs(os.path.dirname(memory_path), exist_ok=True)
+
+        try:
+            with open(memory_path, 'w') as f:
+                json.dump(self.short_memory_history, f, indent=4)
+        except Exception as e:
+            logger.error(f"Error al escribir en {memory_path}: {e}")
+
+
+    def update_long_memory(self, agent_name, entry):
         """Actualiza long_memory con los datos agregados en short_memory."""
+
         mode = entry["transport_mode"]
-        if mode not in memory[agent_name]["long_memory"]["by_mode"]:
-            memory[agent_name]["long_memory"]["by_mode"][mode] = {
+
+        # Inicializar estructura si no existe
+        if agent_name not in self.memory:
+            self.memory[agent_name] = {"short_memory": [], "long_memory": {"by_mode": {}}}
+
+        if "long_memory" not in self.memory[agent_name]:
+            self.memory[agent_name]["long_memory"] = {"by_mode": {}}
+
+        if mode not in self.memory[agent_name]["long_memory"]["by_mode"]:
+            self.memory[agent_name]["long_memory"]["by_mode"][mode] = {
                 "total_days": 0,
                 "avg_travel_time": 0,
                 "avg_waiting_time": 0,
                 "avg_cost": 0,
                 "reflections": {
-              "summary": "-",
-              "adjustment": "-"
+                    "summary": "-",
+                    "adjustment": "-"
+                }
             }
-            }
-        mode_data = memory[agent_name]["long_memory"]["by_mode"][mode]
+
+        mode_data = self.memory[agent_name]["long_memory"]["by_mode"][mode]
+
+        # Actualizar métricas
         mode_data["total_days"] += 1
         mode_data["avg_travel_time"] = ((mode_data["avg_travel_time"] * (mode_data["total_days"] - 1)) + entry[
             "travel_time_min"]) / mode_data["total_days"]
@@ -103,7 +152,7 @@ class EngineAgent(Agent, LlmBase):
         mode_data["avg_cost"] = ((mode_data["avg_cost"] * (mode_data["total_days"] - 1)) + entry["cost"]) / mode_data[
             "total_days"]
 
-        return memory
+        logger.warning("DEBUG 3 - Memory: {} ".format(self.memory))
 
     async def setup(self):
         """
@@ -249,26 +298,48 @@ class EngineBehaviour(State):
         # Iteramos sobre cada agente
         for agent_name in self.agent.get_agent_names():
             memory_agent = self.agent.get_agent_memory_info(agent_name)
+            short_memory = memory_agent.get("short_memory", [])
 
             # Extraer modos de transporte ya usados
-            used_actions = {entry["transport_mode"] for entry in memory_agent if "transport_mode" in entry}
+            used_actions = {entry["transport_mode"] for entry in short_memory if "transport_mode" in entry}
+
+            # Quiero acumular las acciones usadas por el agente. Porque en otra función la memoria corta tiene un umbral de 3 y no aparece todas las opciones usadas
+            #self.used_actions = used_actions
+
+            # **Acumular las acciones previas**
+            if agent_name not in self.agent.agent_used_actions:
+                self.agent.agent_used_actions[agent_name] = set()
+
+            # Agregar las nuevas acciones usadas
+            self.agent.agent_used_actions[agent_name].update(used_actions)
 
             # Obtener los transportes permitidos según su perfil
             available_transports = profile_transport_modes.get(agent_name, set())
 
             # **Si el agente ya ha usado todas sus opciones de transporte, omitirlo**
-            if used_actions.issuperset(available_transports):
+            if self.agent.agent_used_actions[agent_name].issuperset(available_transports):
                 logger.info(f"{agent_name} has already used all the transport options. Omitting in this iteration.")
                 continue  # No procesa este agente
 
-            # Determinar departure_time
-            if memory_agent:
-                # Usar el último departure_time si existe
-                departure_time = memory_agent[-1].get("departure_time")
+            logger.warning(f"DEBUG 1 - profile_transport_modes: {profile_transport_modes}")
+            logger.warning(f"DEBUG 2 - available_transports: {available_transports}")
+            logger.warning(f"DEBUG 3 - used_actions: {used_actions}")
+            logger.warning(f"DEBUG 4 - accumulated_used_actions: {self.agent.agent_used_actions[agent_name]}")
+
+            # Check if short_memory exists and is not empty
+            if memory_agent and memory_agent.get("short_memory"):
+
+                departure_time = memory_agent["short_memory"][-1].get("departure_time", None)  # Get last entry safely
+
+                logger.warning(f"DEBUG 2 - depature_time: {departure_time}")
+
             else:
                 # Si no hay memoria, obtener arrival_time_limit del perfil y restar 10 minutos
                 arrival_time_limit = profile_data.get(agent_name, {}).get("environment", {}).get("arrival_time_limit",
                                                                                                  {}).get("time")
+
+                logger.warning(f"DEBUG 3 - arrival_time_limit: {arrival_time_limit}")
+
                 if arrival_time_limit:
                     try:
                         arrival_time = datetime.strptime(arrival_time_limit, "%I:%M %p")
@@ -689,14 +760,14 @@ class EngineBehaviour(State):
 
         try:
             # Llamada al LLM - Abre y cierra conexión
-            response = await oneshot_request_llm(self.agent, config=self.agent.model_config, prompt=prompt)
+            decision = await oneshot_request_llm(self.agent, config=self.agent.model_config, prompt=prompt)
 
-            logger.warning(f"DEBUG: {response}")
+            logger.warning(f"DEBUG: {decision}")
 
             # Verificar que la respuesta sea válida y estructurada en JSON
-            if response:
+            if decision:
                 try:
-                    decision = json.loads(response)  # Parseamos la respuesta a JSON
+                    #decision = json.loads(response)  # Parseamos la respuesta a JSON
                     if "next_day_decision" in decision and "suggested_transport_mode" in decision["next_day_decision"]:
                         logger.info(
                             f"[DecisionMakingBehaviour] {agent_name} chooses {decision['next_day_decision']['suggested_transport_mode']}")
@@ -737,7 +808,7 @@ class EngineBehaviour(State):
 
 
     def update_reflection_memory(self, agent_name, llm_response):
-        if agent_name not in self.memory:
+        if agent_name not in self.agent.memory:
             raise ValueError(f"Agent {agent_name} not found in memory.")
 
         agent_data = self.agent.memory[agent_name]
@@ -767,6 +838,9 @@ class EngineBehaviour(State):
             "adjustment": llm_response["reflections"]["adjustment"]
         }]
 
+        # Añadir al historial la short memory
+        self.agent.long_memory_history[agent_name].append(long_memory["by_mode"][transport_mode]["reflections"])
+
     async def run(self):
         """
             Abstract method that should be implemented in subclasses. This is where the specific strategy of the
@@ -792,13 +866,15 @@ class EngineDecisionMakingState(EngineBehaviour):
 
         new_decisions = {}
 
-        if self.agent.agents_action is None:
-            self.agent.agents_action = self.check_options_all_agents()
+        #if self.agent.agents_action is None:
+        #    self.agent.agents_action = self.check_options_all_agents()
+
+        self.agent.agents_action = self.check_options_all_agents()
 
         # Mejora -> 1) Probar opciones de manera estatica o 2) Probar opciones dichas por el LLM
         # Encontrar perfiles sin procesar
 
-        logger.warning("DEBUG 1: {} ".format(len(self.agent.agents_action)))
+        logger.warning("DEBUG 1 - Decision: {} ".format(self.agent.agents_action))
 
         if len(self.agent.agents_action) < len(self.agent.profiles.keys()):
             logger.warning("DEBUG 3.1: {} ".format(set(self.agent.profiles.keys())))
@@ -858,6 +934,12 @@ class EngineDecisionMakingState(EngineBehaviour):
                 # Reflection
 
                 self.update_reflection_memory(agent_name, decision)
+
+
+        memory_path = os.path.join(self.base_dir, "agents/long_memory.json")
+
+        with open(memory_path, 'w') as f:
+            json.dump(self.agent.long_memory_history, f, indent=4)
 
 
         dest_file = os.path.join(self.agent.base_dir, "decisions/" + self.agent.actual_day + "_day_decisions.json")
@@ -932,6 +1014,8 @@ class EnginePrepareOutputState(EngineBehaviour):
         with open(end_path, 'w') as f:
             json.dump(sim_config, f, indent=4)
 
+        #self.agent.agents_action = None
+
         # (Opcional) Si se desea mover en vez de copiar, se puede borrar el original:
         #os.remove('LlmDecisionMaking/Config/config_simulation.json')
         #self.agent.stopped = True
@@ -962,7 +1046,7 @@ class EngineRunSimulationState(State):
                 return_code = await process.wait()
 
                 if return_code == 0:
-                    logger.info(f"{self.agent.jid} simulation finished successfully.")
+                    logger.info(f"Simfleet simulation finished successfully.")
                     self.set_next_state(PREPARE_MEMORY)  # Transition to next state
                     return  # Exit the loop
 
@@ -985,59 +1069,53 @@ class EnginePrepareMemoryState(EngineBehaviour):
         logger.debug("{} in Prepare output State".format(self.agent.jid))
 
     async def run(self):
+        """Prepara la memoria del agente y actualiza los datos de la simulación."""
 
-        #memory = self.agent.memory
-
-        # Calcula el día máximo en una sola línea
-        #max_day = max((trip.get('day', 0) for trips in memory.values() for trip in trips), default=0)
-
-        # Planifica el siguiente día
-        #self.agent.next_day = max_day + 1
-
-        # Verificar si ya existe un archivo para ese día en la carpeta days
-        #dest_file = f"LlmDecisionMaking/LogsForDays/days/{self.agent.next_day}_day_events_simulation.json"
-        #if os.path.exists(dest_file):
-        #    logger.debug(f"El archivo para el día {self.agent.next_day} ya existe.")
-
-
-        #events = self.agent.load_json_conf('LlmDecisionMaking/LogsForDays/events_simulation.json')
-
-        #logger.warning("DEBUG 1: {} in Decision making State".format(events))
-
-        if len(self.agent.memory) == 0:
+        # Inicializar memoria si está vacía
+        if not self.agent.memory:
             self.agent.memory = self.agent.initialize_memory(self.agent.get_agent_names())
 
-        with open('simfleet_metrics.json', 'r') as archivo:
-            metrics = json.load(archivo)
+        # Verificar existencia del archivo de métricas antes de abrirlo
+        metrics_file = Path('simfleet_metrics.json')
+        if not metrics_file.exists():
+            logger.error("El archivo simfleet_metrics.json no existe. No se actualizará la memoria.")
+            return
 
-        self.agent.update_memory_with_simulation(self.agent.memory, metrics)
+        try:
+            with metrics_file.open('r') as archivo:
+                metrics = json.load(archivo)
+        except json.JSONDecodeError as e:
+            logger.error(f"Error al cargar JSON desde {metrics_file}: {e}")
+            return
 
-        shutil.copy('simfleet_metrics.json', self.agent.base_dir / "metrics/days/" + str(self.agent.actual_day) + "_day_simfleet_metrics.json")
-        os.remove('simfleet_metrics.json')
+        # Actualizar memoria con los datos de simulación (sin pasar memory como parámetro)
+        self.agent.update_memory_with_simulation(metrics)
 
-        self.agent.actual_day+=1
+        # Guardar la memoria actualizada
+        memory_path = Path(self.agent.base_dir) / "agents/memory.json"
+        memory_path.parent.mkdir(parents=True, exist_ok=True)  # Asegura que la carpeta exista
 
-        #logger.warning("DEBUG 2: {} in Decision making State".format(events))
+        try:
+            with memory_path.open('w') as f:
+                json.dump(self.agent.memory, f, indent=4)
+        except Exception as e:
+            logger.error(f"Error al escribir en {memory_path}: {e}")
+            return
 
-        # if events:
-        #
-        #     # Validar que 'events' sea una lista de diccionarios con las claves requeridas
-        #     required_keys = {"name", "timestamp", "event_type", "class_type", "details"}
-        #     if not isinstance(events, list) or not all(
-        #             isinstance(e, dict) and required_keys.issubset(e.keys()) for e in events):
-        #         raise ValueError("La estructura de events_simulations.json no es la esperada.")
-        #
-        #     # Paso 3: Guardar el contenido validado en un nuevo archivo en la carpeta days
-        #     with open(dest_file, 'w') as f:
-        #         json.dump(events, f, indent=4)
-        #
-        #     # (Opcional) Si se desea mover en vez de copiar, se puede borrar el original:
-        #
-        #
-        #     self.process_events(events=events, day=self.agent.next_day)
+        # Copiar métricas al directorio de días
+        destination_path = Path(
+            self.agent.base_dir) / "metrics/days" / f"{self.agent.actual_day}_day_simfleet_metrics.json"
+        destination_path.parent.mkdir(parents=True, exist_ok=True)  # Asegura que la carpeta exista
 
-        #if max_day < len(self.agent.actions):
-        #self.agent.agents_action = self.check_options_all_agents()
+        try:
+            shutil.copy(metrics_file, destination_path)
+            metrics_file.unlink()  # Elimina el archivo original
+        except Exception as e:
+            logger.error(f"Error al mover {metrics_file} a {destination_path}: {e}")
+            return
+
+        # Avanzar al siguiente día en la simulación
+        #self.agent.actual_day += 1
 
         self.set_next_state(DECISION_MAKING)
         return
