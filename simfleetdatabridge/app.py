@@ -33,7 +33,7 @@ class EngineAgent(Agent, LlmBase):
         self.base_dir = Path(sim_path)
 
         self.agents_action = None
-        self.next_day = None
+        self.reflection = False
         self.actual_day = None
 
         self.status = None
@@ -62,6 +62,7 @@ class EngineAgent(Agent, LlmBase):
                 agent_name = agent_data["name"].split("@")[0]
                 if agent_name in self.get_agent_names(self):
                     entry = {
+                        "day": self.actual_day,
                         "departure_time": self.real_seconds_to_scaled_time(
                             agent_data["trip_completion_timestamp"] - agent_data["trip_time"] - agent_data[
                                 "waiting_time"]),
@@ -134,84 +135,6 @@ class EngineAgent(Agent, LlmBase):
 
         #await decision_behaviour.join()
         #self.stopped = True
-
-#Test llamada LLM
-# class DecisionMakingBehaviour(OneShotBehaviour):
-#     """
-#     One-time behaviour that makes transport decisions for each agent using an LLM.
-#     """
-#
-#     def __init__(self, config):
-#         super().__init__()
-#         self.llm_conection = config  # `EngineAgent`
-#
-#     async def run(self):
-#         logger.info("[DecisionMakingBehaviour] Starting decision process.")
-#
-#         new_decisions = {}
-#
-#         for agent_name in self.agent.get_agent_names():
-#             profile = self.agent.get_agent_info(agent_name)
-#             past_memory = self.agent.get_agent_memory_info(agent_name)
-#
-#             # Obtener la mejor opción de transporte para el siguiente día
-#             decision = await self.make_decision(agent_name, profile, past_memory)
-#
-#             if decision:
-#                 new_decisions[agent_name] = decision["decision"]
-#
-#         with open("decisions.json", "w") as f:
-#             json.dump(new_decisions, f, indent=4)
-#
-#         logger.info("[DecisionMakingBehaviour] Decision process completed.")
-#
-#     async def make_decision(self, agent_name, profile, past_memory):
-#         """
-#         Calls the LLM to determine the best transport mode for the next day.
-#         """
-#         prompt = f"""
-#         You are a Pedestrian with the following profile: {json.dumps(profile, indent=2)}.
-#         Based on the following JSON of historical travel data and the profile, analyze and determine the best transportation option for the next day.
-#
-#         **Instructions:**
-#         1. Evaluate the travel options.
-#         2. Determine the departure time and the mode of transport.
-#         3. Justify the decision based on travel time and cost.
-#         4. **Return ONLY the response in JSON format, without any additional explanation.**
-#
-#         ### **Input Data (JSON):**
-#         {json.dumps({"travel_history": past_memory}, indent=2)}
-#
-#         **Expected Output Format (JSON):**
-#         {{
-#           "decision": {{
-#             "suggested_departure_time": "XX:XX",
-#             "suggested_transport_mode": "XXX",
-#             "estimated_cost": X.XX,
-#             "estimated_travel_time_min": XX,
-#             "reasoning": "XXX"
-#           }}
-#         }}
-#         """
-#
-#         # Llamada al LLM
-#         decision = await oneshot_request_llm(self.agent, config=self.llm_conection, prompt=prompt)
-#
-#         if decision:
-#             logger.info(f"[DecisionMakingBehaviour] {agent_name} chooses {decision}")
-#             return decision
-#         else:
-#             logger.warning(f"[DecisionMakingBehaviour] Invalid decision for {agent_name}. Using fallback option.")
-#             return {
-#                 "decision": {
-#                     "suggested_departure_time": "06:30",
-#                     "suggested_transport_mode": "walk",
-#                     "estimated_cost": 0,
-#                     "estimated_travel_time_min": 100,
-#                     "reasoning": "Fallback due to invalid response."
-#                 }
-#             }
-
 
 
 class EngineBehaviour(State):
@@ -431,10 +354,10 @@ class EngineBehaviour(State):
             logger.error(f"Error loading JSON file: {latest_config_path}")
             raise ValueError(f"Error loading JSON file: {latest_config_path}")
 
-    def generate_travel_prompt(self, agent_profile, agent_memory):
+    def generate_travel_prompt(self, agent_id, agent_profile, agent_memory):
 
         prompt = {
-            pedestrian_id: {
+            agent_id: {
                 "user_profile": agent_profile,
                 "travel_memory": agent_memory,
                 "instructions": {
@@ -754,6 +677,96 @@ class EngineBehaviour(State):
                 }
             }
 
+    async def decision_making(self, agent_name, profile, past_memory):
+        """
+        Calls the LLM to determine the best transport mode for the next day.
+        """
+
+        # Generar el nuevo prompt con la estructura actualizada
+        prompt = self.generate_travel_prompt(agent_name, profile, past_memory)
+
+        logger.warning(f"DEBUG: {prompt}")
+
+        try:
+            # Llamada al LLM - Abre y cierra conexión
+            response = await oneshot_request_llm(self.agent, config=self.agent.model_config, prompt=prompt)
+
+            logger.warning(f"DEBUG: {response}")
+
+            # Verificar que la respuesta sea válida y estructurada en JSON
+            if response:
+                try:
+                    decision = json.loads(response)  # Parseamos la respuesta a JSON
+                    if "next_day_decision" in decision and "suggested_transport_mode" in decision["next_day_decision"]:
+                        logger.info(
+                            f"[DecisionMakingBehaviour] {agent_name} chooses {decision['next_day_decision']['suggested_transport_mode']}")
+                        return decision
+                    else:
+                        logger.warning(
+                            f"[DecisionMakingBehaviour] Invalid decision structure for {agent_name}. Using fallback option.")
+                except json.JSONDecodeError:
+                    logger.error(f"[DecisionMakingBehaviour] LLM response is not valid JSON. Using fallback option.")
+            else:
+                logger.warning(f"[DecisionMakingBehaviour] No response from LLM. Using fallback option.")
+
+        except Exception as e:
+            logger.error(f"Error calling LLM: {e}")
+
+        # Opción por defecto en caso de error o respuesta inválida
+        fallback_decision = {
+            "decision_context": {
+                "reason": "Fallback due to invalid or missing response.",
+                "satisfaction_score": "0",
+                "explore_alternative": "no",
+                "transport_alternative_considered": []
+            },
+            "reflections": {
+                "summary": "Insufficient data to analyze past performance.",
+                "adjustment": "Consider gathering more historical travel data."
+            },
+            "next_day_decision": {
+                "suggested_departure_time": "06:30 AM",
+                "suggested_transport_mode": "walk",
+                "estimated_cost": 0.00,
+                "estimated_travel_time_min": 100,
+                "reasoning": "Fallback decision applied due to lack of valid LLM response."
+            }
+        }
+
+        return fallback_decision
+
+
+    def update_reflection_memory(self, agent_name, llm_response):
+        if agent_name not in self.memory:
+            raise ValueError(f"Agent {agent_name} not found in memory.")
+
+        agent_data = self.agent.memory[agent_name]
+        short_memory = agent_data["short_memory"]
+        long_memory = agent_data["long_memory"]
+
+        if not short_memory:
+            raise ValueError("No short_memory data available to update.")
+
+        # Get the latest entry in short_memory
+        last_entry = short_memory[-1]
+        transport_mode = last_entry["transport_mode"]
+
+        # Update decision_context in the latest short_memory entry
+        last_entry["decision_context"].update({
+            "reason": llm_response["decision_context"]["reason"],
+            "satisfaction_score": llm_response["decision_context"]["satisfaction_score"],
+            "alternative_considered": llm_response["decision_context"]["transport_alternative_considered"]
+        })
+
+        # Update reflections in the corresponding transport mode in long_memory
+        if transport_mode not in long_memory["by_mode"]:
+            raise ValueError(f"Transport mode {transport_mode} not found in long_memory.")
+
+        long_memory["by_mode"][transport_mode]["reflections"] = [{
+            "summary": llm_response["reflections"]["summary"],
+            "adjustment": llm_response["reflections"]["adjustment"]
+        }]
+
     async def run(self):
         """
             Abstract method that should be implemented in subclasses. This is where the specific strategy of the
@@ -779,7 +792,8 @@ class EngineDecisionMakingState(EngineBehaviour):
 
         new_decisions = {}
 
-        self.agent.agents_action = self.check_options_all_agents()
+        if self.agent.agents_action is None:
+            self.agent.agents_action = self.check_options_all_agents()
 
         # Mejora -> 1) Probar opciones de manera estatica o 2) Probar opciones dichas por el LLM
         # Encontrar perfiles sin procesar
@@ -807,14 +821,15 @@ class EngineDecisionMakingState(EngineBehaviour):
             past_memory = self.agent.get_agent_memory_info(agent_name)
 
             # Obtener la mejor opción de transporte para el siguiente día
-            decision = await self.make_decision(agent_name, profile, past_memory)
+            #decision = await self.make_decision(agent_name, profile, past_memory)
+            decision = await self.decision_making(agent_name, profile, past_memory)
 
             if decision:
-                new_decisions[agent_name] = decision["decision"]
+                new_decisions[agent_name] = decision
 
                 # Extraer la información sugerida
-                suggested_departure_time = decision["decision"].get("suggested_departure_time")
-                suggested_transport_mode = decision["decision"].get("suggested_transport_mode")
+                suggested_departure_time = decision["next_day_decision"].get("suggested_departure_time")
+                suggested_transport_mode = decision["next_day_decision"].get("suggested_transport_mode")
 
                 # Obtener el agente correspondiente
                 # agent = self.agents.get(agent_name)
@@ -840,14 +855,22 @@ class EngineDecisionMakingState(EngineBehaviour):
                     "depature_time": suggested_departure_time
                 }
 
+                # Reflection
 
+                self.update_reflection_memory(agent_name, decision)
+
+
+        dest_file = os.path.join(self.agent.base_dir, "decisions/" + self.agent.actual_day + "_day_decisions.json")
         # Verificar si ya existe un archivo para ese día en la carpeta days
-        dest_file = f"LlmDecisionMaking/Agents/decisions/{self.agent.next_day+1}_day_decisions.json"
+        #dest_file = f"LlmDecisionMaking/Agents/decisions/{self.agent.actual_day}_day_decisions.json"
         if os.path.exists(dest_file):
-            logger.debug(f"El archivo para el día {self.agent.next_day} ya existe.")
+            logger.debug(f"El archivo para el día {self.agent.actual_day} ya existe.")
 
         with open(dest_file, "w") as f:
             json.dump(new_decisions, f, indent=4)
+
+        if self.agent.actual_day == self.agent.environment.get("days"):
+            self.agent.stopped = True
 
         logger.info("[DecisionMakingBehaviour] Decision process completed.")
 
@@ -911,7 +934,6 @@ class EnginePrepareOutputState(EngineBehaviour):
 
         # (Opcional) Si se desea mover en vez de copiar, se puede borrar el original:
         #os.remove('LlmDecisionMaking/Config/config_simulation.json')
-
         #self.agent.stopped = True
         self.set_next_state(RUN_SIMULATION)
         return
@@ -992,6 +1014,8 @@ class EnginePrepareMemoryState(EngineBehaviour):
 
         shutil.copy('simfleet_metrics.json', self.agent.base_dir / "metrics/days/" + str(self.agent.actual_day) + "_day_simfleet_metrics.json")
         os.remove('simfleet_metrics.json')
+
+        self.agent.actual_day+=1
 
         #logger.warning("DEBUG 2: {} in Decision making State".format(events))
 
