@@ -331,13 +331,13 @@ class OneShotPedestrianCarMovingState(PedestrianStrategyBehaviour):
                 self.set_next_state(CUSTOMER_MOVING_TO_DEST)
             else:
 
-                self.agent.transport_cost(distance=self.agent.distance)
+                self.agent.transport_cost(self.agent.get_distance())
 
                 # New statistics
                 # Event 2: Trip completion
                 self.agent.events_store.emit(
                     event_type="trip_completion",
-                    details={"cost": self.agent.cost, "transport": "personal-car", "distance": self.agent.distance}
+                    details={"cost": self.agent.cost, "transport": "personal-car", "distance": self.agent.get_distance()}
                 )
                 self.set_next_state(CUSTOMER_IN_DEST)
 
@@ -352,7 +352,7 @@ class OneShotPedestrianCarMovingState(PedestrianStrategyBehaviour):
             # Event 2: Trip completion
             self.agent.events_store.emit(
                 event_type="trip_completion",
-                details={"cost": self.agent.cost, "transport": "personal-car", "distance": self.agent.distance}
+                details={"cost": self.agent.cost, "transport": "personal-car", "distance": self.agent.get_distance()}
             )
 
             self.agent.status = CUSTOMER_IN_DEST
