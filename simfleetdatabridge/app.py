@@ -52,10 +52,7 @@ class EngineAgent(Agent, LlmBase):
 
     def initialize_memory(self, profiles):
         """Inicializa la memoria si está vacía."""
-        return {agent: {"short_memory": [], "long_memory": {"by_mode": {}, "trends": {
-            "most_frequent_mode": None, "least_frequent_mode": None,
-            "most_costly_mode": None, "most_reliable_mode": None,
-            "biggest_issue": None}}} for agent in profiles}
+        return {agent: {"short_memory": [], "long_memory": {"by_mode": {}}} for agent in profiles}
 
     def update_memory_with_simulation(self, sim_metrics, umbral_memoria=3):
         """Actualiza la memoria interna del agente con los datos de la simulación y mantiene short_memory dentro del umbral."""
@@ -815,6 +812,10 @@ class EngineBehaviour(State):
         short_memory = agent_data["short_memory"]
         long_memory = agent_data["long_memory"]
 
+        logger.warning("DEBUG 4.1 - Reflection: {} ".format(agent_data))
+        logger.warning("DEBUG 4.2 - Reflection: {} ".format(short_memory))
+        logger.warning("DEBUG 4.3 - Reflection: {} ".format(long_memory))
+
         if not short_memory:
             raise ValueError("No short_memory data available to update.")
 
@@ -838,8 +839,10 @@ class EngineBehaviour(State):
             "adjustment": llm_response["reflections"]["adjustment"]
         }]
 
+        #SOLUCIONA ESTE PROBLEMA PARA GUARDAR LA MEMORIA A LARGO PLAZO
+
         # Añadir al historial la short memory
-        self.agent.long_memory_history[agent_name].append(long_memory["by_mode"][transport_mode]["reflections"])
+        #self.agent.long_memory_history[agent_name].append(long_memory["by_mode"][transport_mode]["reflections"])
 
     async def run(self):
         """
@@ -928,21 +931,27 @@ class EngineDecisionMakingState(EngineBehaviour):
                     "action_name": suggested_transport_mode,
                     "class_path": action_path,
                     "strategy_path": strategy_path,
-                    "depature_time": suggested_departure_time
+                    "departure_time": suggested_departure_time
                 }
+
+                logger.warning("DEBUG 4 - Decision: {} ".format(self.agent.agents_action))
+
+                logger.warning("DEBUG 4 - Decision: {} ".format(self.agent.agents_action))
 
                 # Reflection
 
                 self.update_reflection_memory(agent_name, decision)
 
+        logger.warning("DEBUG 4.5 - Decision: {} ".format(self.agent.memory))
 
-        memory_path = os.path.join(self.base_dir, "agents/long_memory.json")
+        memory_path = os.path.join(self.agent.base_dir, "agents/long_memory.json")
 
         with open(memory_path, 'w') as f:
             json.dump(self.agent.long_memory_history, f, indent=4)
 
-
-        dest_file = os.path.join(self.agent.base_dir, "decisions/" + self.agent.actual_day + "_day_decisions.json")
+        #SOLUCIONAR LA CONCATENACION
+        dest_file = os.path.join(self.agent.base_dir, "agents/decisions/" + str(self.agent.actual_day) + "_day_decisions.json")
+        dest_file = Path(dest_file)
         # Verificar si ya existe un archivo para ese día en la carpeta days
         #dest_file = f"LlmDecisionMaking/Agents/decisions/{self.agent.actual_day}_day_decisions.json"
         if os.path.exists(dest_file):
@@ -985,9 +994,9 @@ class EnginePrepareOutputState(EngineBehaviour):
                 # Actualizar delay usando depature_time (conversión a segundos)
                 dep_time = decision.get("departure_time")
                 if dep_time:
-                    customer["delay"] = self.agent.scaled_time_to_seconds(str(dep_time))
+                    customer["delay"] = self.agent.scaled_time_to_real_seconds(str(dep_time))
                 else:
-                    logger.debug(f"Advertencia: No se encontró 'depature_time' para {customer_name}.")
+                    logger.debug(f"Advertencia: No se encontró 'departure_time' para {customer_name}.")
                 # Actualizar class y strategy
                 logger.warning("DEBUG 2.2: {} ".format(decision.get("class_path", customer.get("class"))))
                 customer["class"] = decision.get("class_path", customer.get("class"))
