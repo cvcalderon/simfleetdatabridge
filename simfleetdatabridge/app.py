@@ -429,7 +429,7 @@ class EngineBehaviour(State):
                 "user_profile": agent_profile,
                 "travel_memory": agent_memory,
                 "instructions": {
-                    "task": "Your role is to analyze the user's travel history and select the optimal transportation mode for the next day while also exploring alternative options when necessary. Your decision should balance punctuality, comfort, cost, and reliability based on past performance and user preferences.",
+                    "task": "Your role is to analyze the user's travel history and select the optimal transportation mode for the next day while also exploring alternative options when necessary. Your decision should balance punctuality, comfort, cost, eco-friendly and reliability based on past performance and user preferences.",
                     "evaluation_steps": [
                         {
                             "step": 1,
@@ -453,7 +453,7 @@ class EngineBehaviour(State):
                         }
                     ],
                     "output_requirements": {
-                        "format": "Return ONLY a valid JSON response with no additional commentary.",
+                        "format": "**Return ONLY a valid JSON response with no additional commentary.**",
                         "structure": {
                             "decision_context": {
                                 "reason": "Explain the reasoning behind the decision, referencing profile constraints, historical performance, and whether a new mode is being tested.",
@@ -936,8 +936,6 @@ class EngineDecisionMakingState(EngineBehaviour):
 
                 logger.warning("DEBUG 4 - Decision: {} ".format(self.agent.agents_action))
 
-                logger.warning("DEBUG 4 - Decision: {} ".format(self.agent.agents_action))
-
                 # Reflection
 
                 self.update_reflection_memory(agent_name, decision)
@@ -960,10 +958,22 @@ class EngineDecisionMakingState(EngineBehaviour):
         with open(dest_file, "w") as f:
             json.dump(new_decisions, f, indent=4)
 
+        logger.info("[DecisionMakingBehaviour] Decision process completed.")
+
+        # Guardar la memoria actualizada
+        memory_path = Path(self.agent.base_dir) / "agents/memory.json"
+        memory_path.parent.mkdir(parents=True, exist_ok=True)  # Asegura que la carpeta exista
+
+        try:
+            with memory_path.open('w') as f:
+                json.dump(self.agent.memory, f, indent=4)
+        except Exception as e:
+            logger.error(f"Error al escribir en {memory_path}: {e}")
+            return
+
+        #Comprobar el día de simulación
         if self.agent.actual_day == self.agent.environment.get("days"):
             self.agent.stopped = True
-
-        logger.info("[DecisionMakingBehaviour] Decision process completed.")
 
         if self.agent.agents_action != None:
             #self.agent.stopped = True
