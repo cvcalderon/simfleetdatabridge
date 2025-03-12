@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
+from simfleetdatabridge.template.gui import launch_gui
 
 @click.group()
 def main():
@@ -26,13 +27,16 @@ def main():
               help="Path to the output file where generated profiles will be saved.")
 def generate_llm_profiles(input_path, output_path):
     """Generates LLM profiles based on input data."""
+
     logger.info(f'Generating LLM profiles from: {input_path}')
 
-    # Placeholder for the actual profile generation logic
-    # generate_llm_profiles(input_path, output_path)
 
-    logger.success(f'LLM profiles generated and saved to: {output_path}')
-
+@click.command(name="launch-gui")
+def launch_gui_cmd():
+    """Launch the GUI for SimfleetAI."""
+    logger.info("Launching SimfleetAI GUI...")
+    app = launch_gui()
+    app.mainloop()
 
 @click.command(name="run-simfleetai")
 @click.option("--base-dir", prompt="Base directory for simulations",
@@ -159,6 +163,8 @@ def app_engine(base_dir, name, framework_config):
 
 # Add commands to the CLI group
 main.add_command(generate_llm_profiles)
+main.add_command(launch_gui_cmd)
+
 main.add_command(run_simfleetai)
 
 if __name__ == '__main__':
