@@ -1,59 +1,123 @@
 import tkinter as tk
 from tkinter import font
-
-from simfleetdatabridge.template.utils import COLOR_UPPER_BAR, COLOR_SIDE_MENU_COLOR, COLOR_PRINCIPAL_BODY, COLOR_MENU_CURSOR_ENTER
 import simfleetdatabridge.template.utils as utils
 
 
-class launch_gui(tk.Tk):
+class LaunchGUI(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        #self.logo = utils.read_image("./images/logo.png",(560,136))
 
         self.config_window()
         self.panels()
         self.upper_bar_controls()
+        self.side_menu_controls()
+        self.menu_visible = True  # Estado del menú lateral
+        self.profile_expanded = False  # Estado del submenú "Profile"
 
     def config_window(self):
-
         self.title("SimfleetAI")
         self.iconbitmap(utils.absolute_path("./images/icon.ico"))
         w, h = 1024, 600
-        utils.center_window(self, app_width = w, app_height = h)
+        utils.center_window(self, app_width=w, app_height=h)
 
     def panels(self):
+        self.upper_bar = tk.Frame(self, bg=utils.COLOR_UPPER_BAR, height=50)
+        self.upper_bar.pack(side=tk.TOP, fill='x')
 
-        # Create upper bar
-        self.upper_bar = tk.Frame(self, bg=COLOR_UPPER_BAR, height=50)
-        self.upper_bar.pack(side=tk.TOP, fill='both')
+        self.side_menu = tk.Frame(self, bg=utils.COLOR_SIDE_MENU_COLOR, width=150)
+        self.side_menu.pack(side=tk.LEFT, fill='y')
 
-        # Create side menu
-        self.side_menu = tk.Frame(self, bg=COLOR_SIDE_MENU_COLOR, width=150)
-        self.side_menu.pack(side=tk.LEFT, fill='both', expand=False)
-
-        # Create principal body
-        self.principal_body = tk.Frame(self, bg=COLOR_PRINCIPAL_BODY)
+        self.principal_body = tk.Frame(self, bg=utils.COLOR_PRINCIPAL_BODY)
         self.principal_body.pack(side=tk.RIGHT, fill='both', expand=True)
 
     def upper_bar_controls(self):
-
-        # Config upper bar
-        font_awesome = font.Font(family="FontAwesome", size=12)
+        universal_font = font.Font(family="DejaVu Sans", size=12)
 
         # Title label
-        self.labelTitle = tk.Label(self.upper_bar, text="SimfleetAI")
-        self.labelTitle.config(fg="#fff", font=("Roboto", 15),
-                               bg=COLOR_UPPER_BAR, pady=10, width=14)
-        self.labelTitle.pack(side=tk.LEFT)
+        self.labelTitle = tk.Label(self.upper_bar, text="SimfleetAI", fg="#fff",
+                                   font=("Noto Sans", 15), bg=utils.COLOR_UPPER_BAR, pady=10, width=14)
+        self.labelTitle.pack(side=tk.LEFT, padx=10)
 
-        # Side menu buttom
-        self.SideMenuButtom = tk.Button(self.upper_bar, text='\uf0c9', font=font_awesome,
-                                        bd=0, bg=COLOR_UPPER_BAR, fg="white")
-        self.SideMenuButtom.pack(side=tk.LEFT)
+        # Side menu button ☰ (Unicode)
+        self.sideMenuButton = tk.Button(self.upper_bar, text=" ☰ ", font=universal_font,
+                                        command=self.toggle_panel, bd=0, bg=utils.COLOR_UPPER_BAR, fg="white")
+        self.sideMenuButton.pack(side=tk.LEFT)
 
-        # Label information
-        self.labelTitle = tk.Label(self.upper_bar, text="Contact: ccalderon@upv.es")
-        self.labelTitle.config(fg="#fff", font=("Roboto", 10),
-                               bg=COLOR_UPPER_BAR, padx=10, width=20)
-        self.labelTitle.pack(side=tk.RIGHT)
+        # Contact Label
+        self.labelContact = tk.Label(self.upper_bar, text="Contact: ccalderon@upv.es",
+                                     fg="#fff", font=("Noto Sans", 10), bg=utils.COLOR_UPPER_BAR, padx=10, width=20)
+        self.labelContact.pack(side=tk.RIGHT)
+
+    def side_menu_controls(self):
+        menu_width = 20
+        menu_height = 2
+        universal_font = font.Font(family="DejaVu Sans", size=12)
+
+        # Botón "Profiles"
+        self.buttonProfiles = tk.Button(self.side_menu, text="👤 Profiles", anchor="w", font=universal_font,
+                                       bd=0, bg=utils.COLOR_SIDE_MENU_COLOR, fg="white",
+                                       width=menu_width, height=menu_height, command=self.toggle_profile_menu)
+        self.buttonProfiles.pack(side=tk.TOP, pady=2, padx=5, fill="x")
+        self.bind_hover_events(self.buttonProfiles)
+
+        # Frame para submenú de "Profile"
+        self.profile_submenu_frame = tk.Frame(self.side_menu, bg=utils.COLOR_SIDE_MENU_COLOR)
+        # Inicialmente oculto, no se usa pack()
+
+        # Botones de subcategoría
+        self.buttonCreateProfile = tk.Button(self.profile_submenu_frame, text="   🧑🏻‍ Create", anchor="w",
+                                             font=universal_font,
+                                             bd=0, bg=utils.COLOR_SIDE_MENU_COLOR, fg="white",
+                                             width=menu_width - 2, height=menu_height, command=self.create_profile)
+
+        self.buttonUpdateProfile = tk.Button(self.profile_submenu_frame, text="   🔧 Update", anchor="w",
+                                             font=universal_font,
+                                             bd=0, bg=utils.COLOR_SIDE_MENU_COLOR, fg="white",
+                                             width=menu_width - 2, height=menu_height, command=self.update_profile)
+
+        # Botón "Simulation"
+        self.buttonSimulation = tk.Button(self.side_menu, text="⚙️ Simulation", anchor="w", font=universal_font,
+                                          bd=0, bg=utils.COLOR_SIDE_MENU_COLOR, fg="white",
+                                          width=menu_width, height=menu_height, command=self.open_simulation)
+        self.buttonSimulation.pack(side=tk.TOP, pady=2, padx=5, fill="x")
+        self.bind_hover_events(self.buttonSimulation)
+
+    def bind_hover_events(self, button):
+        button.bind("<Enter>", lambda event: self.on_enter(event, button))
+        button.bind("<Leave>", lambda event: self.on_leave(event, button))
+
+    def on_enter(self, event, button):
+        button.config(bg=utils.COLOR_MENU_CURSOR_ENTER, fg='white')
+
+    def on_leave(self, event, button):
+        button.config(bg=utils.COLOR_SIDE_MENU_COLOR, fg='white')
+
+    def toggle_panel(self):
+        if self.menu_visible:
+            self.side_menu.pack_forget()
+        else:
+            self.side_menu.pack(side=tk.LEFT, fill='y')
+        self.menu_visible = not self.menu_visible
+
+    def toggle_profile_menu(self):
+        """Expande o contrae el menú de 'Profile'"""
+        if self.profile_expanded:
+            self.profile_submenu_frame.pack_forget()
+        else:
+            # Se empaqueta el frame justo después de "Profile" y antes de "Simulation"
+            self.profile_submenu_frame.pack(side=tk.TOP, fill="x", before=self.buttonSimulation)
+            self.buttonCreateProfile.pack(side=tk.TOP, padx=15, fill="x")  # Sangría visual
+            self.buttonUpdateProfile.pack(side=tk.TOP, padx=15, fill="x")  # Sangría visual
+        self.profile_expanded = not self.profile_expanded
+
+    # Métodos de acción
+    def create_profile(self):
+        print("Create Profile")
+
+    def update_profile(self):
+        print("Update Profile")
+
+    def open_simulation(self):
+        print("Simulation Opened")
+

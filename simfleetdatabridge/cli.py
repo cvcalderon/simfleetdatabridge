@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-from simfleetdatabridge.template.gui import launch_gui
+from simfleetdatabridge.template.gui import LaunchGUI
 
 @click.group()
 def main():
@@ -35,7 +35,7 @@ def generate_llm_profiles(input_path, output_path):
 def launch_gui_cmd():
     """Launch the GUI for SimfleetAI."""
     logger.info("Launching SimfleetAI GUI...")
-    app = launch_gui()
+    app = LaunchGUI()
     app.mainloop()
 
 @click.command(name="run-simfleetai")
