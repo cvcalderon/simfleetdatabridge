@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 from tkinter import font
 import simfleetdatabridge.template.utils as utils
 
@@ -69,7 +70,7 @@ class LaunchGUI(tk.Tk):
         self.buttonCreateProfile = tk.Button(self.profile_submenu_frame, text="   🧑🏻‍ Create", anchor="w",
                                              font=universal_font,
                                              bd=0, bg=utils.COLOR_SIDE_MENU_COLOR, fg="white",
-                                             width=menu_width - 2, height=menu_height, command=self.create_profile)
+                                             width=menu_width - 2, height=menu_height, command=self.open_create_profile)
 
         self.buttonUpdateProfile = tk.Button(self.profile_submenu_frame, text="   🔧 Update", anchor="w",
                                              font=universal_font,
@@ -112,8 +113,12 @@ class LaunchGUI(tk.Tk):
         self.profile_expanded = not self.profile_expanded
 
     # Métodos de acción
-    def create_profile(self):
-        print("Create Profile")
+    def open_create_profile(self):
+        """Carga la interfaz de creación de perfiles en el área principal"""
+        for widget in self.principal_body.winfo_children():
+            widget.destroy()  # Limpiar el contenido anterior
+
+        CreateProfile(self.principal_body).pack(expand=True, fill="both")
 
     def update_profile(self):
         print("Update Profile")
@@ -121,3 +126,52 @@ class LaunchGUI(tk.Tk):
     def open_simulation(self):
         print("Simulation Opened")
 
+
+class CreateProfile(tk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent, bg="#EAF2F8")
+
+        self.create_widgets()
+
+    def create_widgets(self):
+        self.main_frame = tk.Frame(self, bg="white", padx=10, pady=10)
+        self.main_frame.pack(expand=True, fill="both", padx=20, pady=20)
+
+        # Demographics
+        self.demographics_frame = tk.LabelFrame(self.main_frame, text="Demographics", font=("Arial", 10, "bold"),
+                                                bg="white")
+        self.demographics_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+
+        tk.Label(self.demographics_frame, text="Name:", font=("Arial", 9, "bold"), bg="white").grid(row=0, column=0,
+                                                                                                    sticky="w", padx=5,
+                                                                                                    pady=2)
+        self.entry_name = tk.Entry(self.demographics_frame, width=20)
+        self.entry_name.grid(row=0, column=1, padx=5, pady=2)
+
+        tk.Label(self.demographics_frame, text="N° of agents:", font=("Arial", 9, "bold"), bg="white").grid(row=1,
+                                                                                                            column=0,
+                                                                                                            sticky="w",
+                                                                                                            padx=5,
+                                                                                                            pady=2)
+        self.agents_slider = tk.Scale(self.demographics_frame, from_=1, to=100, orient="horizontal", length=150)
+        self.agents_slider.set(50)
+        self.agents_slider.grid(row=1, column=1, padx=5, pady=2)
+
+        tk.Label(self.demographics_frame, text="Gender:", font=("Arial", 9, "bold"), bg="white").grid(row=2, column=0,
+                                                                                                      sticky="w",
+                                                                                                      padx=5, pady=2)
+        self.gender_var = tk.StringVar()
+        self.gender_dropdown = ttk.Combobox(self.demographics_frame, textvariable=self.gender_var, state="readonly")
+        self.gender_dropdown["values"] = ["male", "female", "other"]
+        self.gender_dropdown.grid(row=2, column=1, padx=5, pady=2)
+        self.gender_dropdown.current(0)
+
+        # Mobility Preferences
+        self.mobility_frame = tk.LabelFrame(self.main_frame, text="Mobility Preferences", font=("Arial", 10, "bold"),
+                                            bg="white")
+        self.mobility_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+
+        # Personal Environment
+        self.environment_frame = tk.LabelFrame(self.main_frame, text="Personal Environment", font=("Arial", 10, "bold"),
+                                               bg="white")
+        self.environment_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky="nsew")
