@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from tkinter import font
 import simfleetdatabridge.template.utils as utils
 
@@ -141,30 +141,21 @@ class CreateProfile(tk.Frame):
         self.main_frame.pack(expand=True, fill="both", padx=20, pady=20)
 
         # ========== DEMOGRAPHICS ==========
-        self.demographics_frame = tk.LabelFrame(self.main_frame, text="Demographics", font=("Arial", 10, "bold"),
-                                                bg="white")
+        self.demographics_frame = tk.LabelFrame(self.main_frame, text="Demographics", font=("Arial", 10, "bold"), bg="white")
         self.demographics_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
 
-        tk.Label(self.demographics_frame, text="Name:", font=("Arial", 9, "bold"), bg="white").grid(row=0, column=0,
-                                                                                                    sticky="w", padx=5,
-                                                                                                    pady=2)
+        tk.Label(self.demographics_frame, text="Name:", font=("Arial", 9, "bold"), bg="white").grid(row=0, column=0, sticky="w", padx=5, pady=2)
         self.entry_name = tk.Entry(self.demographics_frame, width=20)
         self.entry_name.grid(row=0, column=1, padx=5, pady=2)
 
-        tk.Label(self.demographics_frame, text="Gender:", font=("Arial", 9, "bold"), bg="white").grid(row=1, column=0,
-                                                                                                      sticky="w",
-                                                                                                      padx=5, pady=2)
+        tk.Label(self.demographics_frame, text="Gender:", font=("Arial", 9, "bold"), bg="white").grid(row=1, column=0, sticky="w", padx=5, pady=2)
         self.gender_var = tk.StringVar()
         self.gender_dropdown = ttk.Combobox(self.demographics_frame, textvariable=self.gender_var, state="readonly")
         self.gender_dropdown["values"] = ["male", "female", "other"]
         self.gender_dropdown.grid(row=1, column=1, padx=5, pady=2)
         self.gender_dropdown.current(0)
 
-        tk.Label(self.demographics_frame, text="N° of agents:", font=("Arial", 9, "bold"), bg="white").grid(row=2,
-                                                                                                            column=0,
-                                                                                                            sticky="w",
-                                                                                                            padx=5,
-                                                                                                            pady=2)
+        tk.Label(self.demographics_frame, text="N° of agents:", font=("Arial", 9, "bold"), bg="white").grid(row=2, column=0, sticky="w", padx=5, pady=2)
         self.agents_slider = tk.Scale(self.demographics_frame, from_=1, to=100, orient="horizontal", length=150)
         self.agents_slider.set(50)
         self.agents_slider.grid(row=2, column=1, padx=5, pady=2)
@@ -178,25 +169,103 @@ class CreateProfile(tk.Frame):
         self.add_button.grid(row=3, column=0, columnspan=1, padx=5, pady=5)
 
         # ========== MOBILITY PREFERENCES ==========
-        self.mobility_frame = tk.LabelFrame(self.main_frame, text="Mobility Preferences", font=("Arial", 10, "bold"),
-                                            bg="white")
+        self.mobility_frame = tk.LabelFrame(self.main_frame, text="Mobility Preferences", font=("Arial", 10, "bold"), bg="white")
         self.mobility_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
+        preferences = ["Eco consciousness", "Time sensitivity", "Comfort preference", "Budget sensitivity", "Reliability sensitivity"]
+        options = ["Not at all important", "Slightly important", "Moderately important", "Very important", "Extremely important"]
+
+        self.mobility_vars = {}  # Guardar las selecciones de Combobox
+
+        for i, pref in enumerate(preferences):
+            tk.Label(self.mobility_frame, text=f"{pref}:", font=("Arial", 9, "bold"), bg="white").grid(row=i, column=0, sticky="w", padx=5, pady=2)
+            var = tk.StringVar()
+            combobox = ttk.Combobox(self.mobility_frame, textvariable=var, state="readonly")
+            combobox["values"] = options
+            combobox.grid(row=i, column=1, padx=5, pady=2)
+            combobox.current(0)
+            self.mobility_vars[pref] = var
+
         # ========== PERSONAL ENVIRONMENT ==========
-        self.environment_frame = tk.LabelFrame(self.main_frame, text="Personal Environment", font=("Arial", 10, "bold"),
-                                               bg="white")
+        self.environment_frame = tk.LabelFrame(self.main_frame, text="Personal Environment", font=("Arial", 10, "bold"), bg="white")
         self.environment_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky="nsew")
+
+        # ========== BOTÓN "SAVE" PARA EXPORTAR JSON ==========
+        self.save_button = tk.Button(self.main_frame, text="Save", font=("Arial", 10, "bold"), bg="#AED6F1",
+                                     command=self.save_profile)
+        self.save_button.grid(row=2, column=0, columnspan=2, pady=10)
 
     def add_custom_field(self):
         """ Agrega un nuevo campo de variable si no se supera el límite """
         if len(self.custom_fields) < self.max_fields:
-            row_index = len(self.custom_fields) + 5  # Ajustar la fila
+            row_index = len(self.custom_fields) + 5
             label_var = tk.Entry(self.demographics_frame, width=12)
             label_var.grid(row=row_index, column=0, padx=5, pady=2)
 
             value_var = tk.Entry(self.demographics_frame, width=20)
             value_var.grid(row=row_index, column=1, padx=5, pady=2)
 
-            self.custom_fields.append((label_var, value_var))  # Almacenar campos
+            self.custom_fields.append((label_var, value_var))
         else:
-            self.add_button.config(state="disabled")  # Desactivar botón si se llega al límite
+            self.add_button.config(state="disabled")
+
+    def save_profile(self):
+        """ Guarda los datos del perfil en un archivo JSON """
+
+        # Obtener valores del formulario
+        profile_name = self.entry_name.get().strip()
+        gender = self.gender_var.get()
+        num_agents = self.agents_slider.get()
+
+        if not profile_name:
+            messagebox.showerror("Error", "Profile name is required.")
+            return
+
+        # Diccionario base del perfil
+        profile_data = {
+            profile_name: {
+                "demographics": {
+                    "gender": gender,
+                    "num_agents": num_agents
+                },
+                "mobility_preferences": {pref: var.get() for pref, var in self.mobility_vars.items()}
+            }
+        }
+
+        # Agregar los campos personalizados
+        for label_entry, value_entry in self.custom_fields:
+            label = label_entry.get().strip()
+            value = value_entry.get().strip()
+            if label and value:
+                profile_data[profile_name]["demographics"][label] = value
+
+        # Guardar en JSON
+        file_path = "profiles.json"
+
+        if os.path.exists(file_path):
+            with open(file_path, "r") as file:
+                try:
+                    existing_data = json.load(file)
+                except json.JSONDecodeError:
+                    existing_data = {}
+        else:
+            existing_data = {}
+
+        existing_data.update(profile_data)
+
+        with open(file_path, "w") as file:
+            json.dump(existing_data, file, indent=4)
+
+        messagebox.showinfo("Success", f"Profile '{profile_name}' saved successfully!")
+
+        # Limpiar los campos
+        self.entry_name.delete(0, tk.END)
+        self.gender_dropdown.current(0)
+        self.agents_slider.set(50)
+
+        for label_entry, value_entry in self.custom_fields:
+            label_entry.destroy()
+            value_entry.destroy()
+
+        self.custom_fields.clear()
+        self.add_button.config(state="normal")
