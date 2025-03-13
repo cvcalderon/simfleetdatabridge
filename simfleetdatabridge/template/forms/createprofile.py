@@ -7,13 +7,12 @@ import re
 
 
 class CreateProfile(tk.Frame):
-    def __init__(self, parent):
+    def __init__(self, parent, main_app):
         super().__init__(parent, bg="#EAF2F8")
 
-        self.custom_fields = []  # Lista para almacenar campos dinámicos
-        self.transport_options = []  # Opciones de transporte seleccionadas
-
+        self.main_app = main_app  # Referencia a LaunchGUI
         self.create_widgets()
+        self.restore_tree_data()  # Restaurar datos al abrir
 
     def create_widgets(self):
         self.main_frame = tk.Frame(self, bg="white", padx=10, pady=10)
@@ -209,6 +208,20 @@ class CreateProfile(tk.Frame):
         else:
             self.modify_button.config(state=tk.DISABLED)
 
+    def update_tree_data(self):
+        """Guarda la información actual de la tabla en main_app.tree_data."""
+        self.main_app.tree_data = []
+        for item in self.tree.get_children():
+            self.main_app.tree_data.append(self.tree.item(item, "values"))
+
+    def restore_tree_data(self):
+        """Restaura los perfiles guardados en la tabla cuando se vuelve a abrir."""
+        for row in self.tree.get_children():
+            self.tree.delete(row)  # Limpiar la tabla
+
+        for profile in self.main_app.tree_data:
+            self.tree.insert("", "end", values=profile)
+
     def validate_time_format(self, time_str):
         """Verifica si el tiempo ingresado sigue el formato correcto (HH:MM AM/PM)."""
         time_pattern = r"^(0[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$"
@@ -267,6 +280,8 @@ class CreateProfile(tk.Frame):
         else:
             # Guardar un nuevo perfil
             self.tree.insert("", "end", values=profile_data)
+
+        self.update_tree_data()  # Guardar datos en LaunchGUI
 
         # Limpiar el formulario después de guardar
         self.entry_name.delete(0, tk.END)
@@ -328,6 +343,8 @@ class CreateProfile(tk.Frame):
         for mode, var in self.transport_options_vars.items():
             var.set(mode in transport_options)
 
+        self.update_tree_data()
+
     def load_profiles(self):
         """Carga perfiles desde un archivo JSON y los agrega a la tabla, incluyendo campos personalizados."""
 
@@ -383,6 +400,8 @@ class CreateProfile(tk.Frame):
                             arrival_time, purpose, transport_options)
 
             self.tree.insert("", "end", values=profile_data)
+
+            self.update_tree_data()  # Guardar datos en LaunchGUI
 
         messagebox.showinfo("Success", f"Profiles loaded successfully from {file_path}")
 
@@ -467,3 +486,4 @@ class CreateProfile(tk.Frame):
         selected_items = self.tree.selection()
         for item in selected_items:
             self.tree.delete(item)
+        self.update_tree_data()

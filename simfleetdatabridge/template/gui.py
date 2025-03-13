@@ -1,16 +1,20 @@
 import os
 import json
 import tkinter as tk
-from tkinter import ttk, messagebox
-from tkinter import font
+from tkinter import ttk, messagebox, font
 import simfleetdatabridge.template.utils as utils
 from simfleetdatabridge.template.forms.createprofile import CreateProfile
+from simfleetdatabridge.template.forms.prepareconfig import PrepareSimConfig
 
 class LaunchGUI(tk.Tk):
 
     def __init__(self):
         super().__init__()
 
+        #Variables
+        self.tree_data = []  # Almacena los datos de perfiles
+
+        #Elements
         self.config_window()
         self.panels()
         self.upper_bar_controls()
@@ -74,10 +78,10 @@ class LaunchGUI(tk.Tk):
                                              bd=0, bg=utils.COLOR_SIDE_MENU_COLOR, fg="white",
                                              width=menu_width - 2, height=menu_height, command=self.open_create_profile)
 
-        self.buttonUpdateProfile = tk.Button(self.profile_submenu_frame, text="   🔧 Update", anchor="w",
+        self.buttonUpdateProfile = tk.Button(self.profile_submenu_frame, text="   🔧 Prepare Config", anchor="w",
                                              font=universal_font,
                                              bd=0, bg=utils.COLOR_SIDE_MENU_COLOR, fg="white",
-                                             width=menu_width - 2, height=menu_height, command=self.update_profile)
+                                             width=menu_width - 2, height=menu_height, command=self.prepare_sim_config)
 
         # Botón "Simulation"
         self.buttonSimulation = tk.Button(self.side_menu, text="⚙️ Simulation", anchor="w", font=universal_font,
@@ -116,14 +120,19 @@ class LaunchGUI(tk.Tk):
 
     # Métodos de acción
     def open_create_profile(self):
-        """Carga la interfaz de creación de perfiles en el área principal"""
+        """Carga la interfaz de creación de perfiles en el área principal y conserva los datos."""
         for widget in self.principal_body.winfo_children():
             widget.destroy()  # Limpiar el contenido anterior
 
-        CreateProfile(self.principal_body).pack(expand=True, fill="both")
+        self.create_profile_frame = CreateProfile(self.principal_body, self)
+        self.create_profile_frame.pack(expand=True, fill="both")
 
-    def update_profile(self):
-        print("Update Profile")
+    def prepare_sim_config(self):
+        """Carga la interfaz de configuración de simulación en el área principal."""
+        for widget in self.principal_body.winfo_children():
+            widget.destroy()  # Limpiar el contenido anterior
+
+        PrepareSimConfig(self.principal_body, self.tree_data).pack(expand=True, fill="both")
 
     def open_simulation(self):
         print("Simulation Opened")
