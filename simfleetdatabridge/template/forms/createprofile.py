@@ -31,31 +31,40 @@ class CreateProfile(tk.Frame):
         self.entry_name = tk.Entry(self.demographics_frame, width=20)
         self.entry_name.grid(row=0, column=1, padx=5, pady=2)
 
-        tk.Label(self.demographics_frame, text="Gender:", font=("Arial", 9, "bold"), bg="white").grid(row=1, column=0,
+
+        tk.Label(self.demographics_frame, text="Age:", font=("Arial", 9, "bold"), bg="white").grid(row=1, column=0,
+                                                                                                    sticky="w", padx=5,
+                                                                                                    pady=2)
+        self.entry_age = tk.Entry(self.demographics_frame, width=20)
+        self.entry_age.grid(row=1, column=1, padx=5, pady=2)
+
+
+        tk.Label(self.demographics_frame, text="Gender:", font=("Arial", 9, "bold"), bg="white").grid(row=2, column=0,
                                                                                                       sticky="w",
                                                                                                       padx=5, pady=2)
+
         self.gender_var = tk.StringVar()
         self.gender_dropdown = ttk.Combobox(self.demographics_frame, textvariable=self.gender_var, state="readonly")
         self.gender_dropdown["values"] = ["male", "female", "other"]
-        self.gender_dropdown.grid(row=1, column=1, padx=5, pady=2)
+        self.gender_dropdown.grid(row=2, column=1, padx=5, pady=2)
         self.gender_dropdown.current(0)
 
-        tk.Label(self.demographics_frame, text="N° of agents:", font=("Arial", 9, "bold"), bg="white").grid(row=2,
+        tk.Label(self.demographics_frame, text="N° of agents:", font=("Arial", 9, "bold"), bg="white").grid(row=3,
                                                                                                             column=0,
                                                                                                             sticky="w",
                                                                                                             padx=5,
                                                                                                             pady=2)
         self.agents_slider = tk.Scale(self.demographics_frame, from_=1, to=100, orient="horizontal", length=150)
         self.agents_slider.set(50)
-        self.agents_slider.grid(row=2, column=1, padx=5, pady=2)
+        self.agents_slider.grid(row=3, column=1, padx=5, pady=2)
 
         # ========== BOTÓN "ADD" PARA VARIABLES PERSONALIZADAS ==========
         self.custom_field_frame = tk.Frame(self.demographics_frame, bg="white")
-        self.custom_field_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=5)
+        self.custom_field_frame.grid(row=4, column=0, columnspan=2, padx=5, pady=5)
 
         self.add_button = tk.Button(self.demographics_frame, text="Add +", font=("Arial", 10, "bold"), bg="#D5DBDB",
                                     command=self.add_custom_field)
-        self.add_button.grid(row=3, column=0, columnspan=1, padx=5, pady=5)
+        self.add_button.grid(row=4, column=0, columnspan=1, padx=5, pady=5)
 
         # ========== MOBILITY PREFERENCES ==========
         self.mobility_frame = tk.LabelFrame(self.main_frame, text="Mobility Preferences", font=("Arial", 10, "bold"),
@@ -130,10 +139,6 @@ class CreateProfile(tk.Frame):
             chk.pack(side=tk.LEFT, padx=5)
             self.transport_options_vars[mode] = var
 
-        # ========== BOTÓN "SAVE" ==========
-        # self.save_button = tk.Button(self.main_frame, text="Save", font=("Arial", 10, "bold"), bg="#AED6F1",
-        #                              command=self.save_profile)
-        # self.save_button.grid(row=2, column=0, columnspan=2, pady=10)
 
         # ========== BOTONES ==========
         self.button_frame = tk.Frame(self.main_frame, bg="white")
@@ -152,26 +157,50 @@ class CreateProfile(tk.Frame):
         self.delete_button.pack(side=tk.LEFT, padx=5)
 
         # ========== TABLA DE PERFILES ==========
-        columns = ("Name", "Nº agents", "Gender", "Eco", "Time", "Comfort", "Budget", "Reliability", "Select")
-        self.tree = ttk.Treeview(self.main_frame, columns=columns, show="headings", selectmode="extended")
+        self.create_profiles_table()
 
-        for col in columns:
+    def create_profiles_table(self):
+        """Crea la tabla de perfiles en la interfaz con soporte para campos dinámicos."""
+
+        # Definir columnas base
+        self.columns = ["Name", "Nº agents", "Age", "Gender", "Eco", "Time", "Comfort", "Budget", "Reliability",
+                        "Purpose", "Transport options", "Select"]
+
+        # Crear Treeview con las columnas base
+        self.tree = ttk.Treeview(self.main_frame, columns=self.columns, show="headings", selectmode="extended")
+
+        # Configurar encabezados y ancho de columnas
+        for col in self.columns:
             self.tree.heading(col, text=col)
-            self.tree.column(col, width=100)
+            self.tree.column(col, width=120)
 
-        self.tree.grid(row=3, column=0, columnspan=2, pady=10)
+        # Agregar Treeview a la interfaz
+        self.tree.grid(row=3, column=0, columnspan=2, pady=10, sticky="nsew")
+
+        # Agregar barra de desplazamiento
+        scrollbar = ttk.Scrollbar(self.main_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscroll=scrollbar.set)
+        scrollbar.grid(row=3, column=2, sticky="ns")
+
 
     def add_custom_field(self):
-        """ Agrega un nuevo campo de variable si no se supera el límite """
+        """ Agrega un nuevo campo personalizado si no se ha alcanzado el límite """
         if len(self.custom_fields) < self.max_fields:
             row_index = len(self.custom_fields) + 5
-            label_var = tk.Entry(self.demographics_frame, width=12)
-            label_var.grid(row=row_index, column=0, padx=5, pady=2)
+            label_entry = tk.Entry(self.demographics_frame, width=12)
+            label_entry.grid(row=row_index, column=0, padx=5, pady=2)
 
-            value_var = tk.Entry(self.demographics_frame, width=20)
-            value_var.grid(row=row_index, column=1, padx=5, pady=2)
+            value_entry = tk.Entry(self.demographics_frame, width=20)
+            value_entry.grid(row=row_index, column=1, padx=5, pady=2)
 
-            self.custom_fields.append((label_var, value_var))
+            self.custom_fields.append((label_entry, value_entry))
+
+            # Agregar la columna dinámica a self.tree si aún no está
+            custom_label = label_entry.get().strip()
+            if custom_label and custom_label not in self.tree["columns"]:
+                self.tree["columns"] = self.tree["columns"] + (custom_label,)
+                self.tree.heading(custom_label, text=custom_label)
+                self.tree.column(custom_label, width=100)
         else:
             self.add_button.config(state="disabled")
 
@@ -184,6 +213,7 @@ class CreateProfile(tk.Frame):
         """Guarda un perfil en la lista asegurando que todos los valores del formulario estén incluidos."""
 
         profile_name = self.entry_name.get().strip()
+        profile_age = self.entry_age.get().strip()
         num_agents = self.agents_slider.get()
         gender = self.gender_var.get()
         arrival_time_value = self.arrival_time.get().strip()
@@ -191,6 +221,10 @@ class CreateProfile(tk.Frame):
 
         if not profile_name:
             messagebox.showerror("Error", "Profile name is required.")
+            return
+
+        if not profile_age:
+            messagebox.showerror("Error", "Profile age is required.")
             return
 
         # Validar formato de la hora
@@ -209,28 +243,35 @@ class CreateProfile(tk.Frame):
         transport_selected = [mode for mode, var in self.transport_options_vars.items() if var.get()]
         transport_str = ", ".join(transport_selected) if transport_selected else "None"
 
-        # Crear perfil con todos los valores
-        profile_data = (
-            profile_name, num_agents, gender, eco, time_sens, comfort, budget, reliability, arrival_time_value,
-            purpose_value, transport_str, False
-        )
+        # Obtener valores de los campos personalizados
+        custom_values = {}
+        for label_entry, value_entry in self.custom_fields:
+            label = label_entry.get().strip()
+            value = value_entry.get().strip()
+            if label and value:
+                custom_values[label] = value
 
-        # Insertar perfil en la tabla
+        # Crear perfil con todos los valores, incluyendo los personalizados
+        profile_data = (
+                           profile_name, profile_age, num_agents, gender, eco, time_sens, comfort, budget, reliability,
+                           arrival_time_value,
+                           purpose_value, transport_str
+                       ) + tuple(custom_values.values())  # Añadir valores personalizados dinámicamente
+
+        # Insertar perfil en la tabla con columnas dinámicas
         self.tree.insert("", "end", values=profile_data)
 
         # Limpiar los campos después de guardar
         self.entry_name.delete(0, tk.END)
+        self.entry_age.delete(0, tk.END)
         self.gender_dropdown.current(0)
         self.agents_slider.set(50)
         self.arrival_time.delete(0, tk.END)
         self.purpose.delete(0, tk.END)
 
         for label_entry, value_entry in self.custom_fields:
-            label_entry.destroy()
-            value_entry.destroy()
-
-        self.custom_fields.clear()
-        self.add_button.config(state="normal")
+            label_entry.delete(0, tk.END)
+            value_entry.delete(0, tk.END)
 
         # Reiniciar selección de transporte
         for var in self.transport_options_vars.values():
@@ -318,4 +359,3 @@ class CreateProfile(tk.Frame):
         selected_items = self.tree.selection()
         for item in selected_items:
             self.tree.delete(item)
-
