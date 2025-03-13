@@ -163,8 +163,8 @@ class CreateProfile(tk.Frame):
         """Crea la tabla de perfiles en la interfaz con soporte para campos dinámicos."""
 
         # Definir columnas base
-        self.columns = ["Name", "Nº agents", "Age", "Gender", "Eco", "Time", "Comfort", "Budget", "Reliability",
-                        "Purpose", "Transport options", "Select"]
+        self.columns = ["Name", "Age", "Nº agents", "Gender", "Eco", "Time", "Comfort", "Budget", "Reliability",
+                        "Hour", "Purpose", "Transport options", "Select"]
 
         # Crear Treeview con las columnas base
         self.tree = ttk.Treeview(self.main_frame, columns=self.columns, show="headings", selectmode="extended")
@@ -278,7 +278,7 @@ class CreateProfile(tk.Frame):
             var.set(False)
 
     def load_profiles(self):
-        """Carga perfiles desde un archivo JSON y agrupa los perfiles con el mismo nombre base."""
+        """Carga perfiles desde un archivo JSON y los agrega a la tabla, incluyendo campos personalizados."""
 
         # Abrir el explorador de archivos para seleccionar un JSON
         file_path = filedialog.askopenfilename(
@@ -296,20 +296,32 @@ class CreateProfile(tk.Frame):
             messagebox.showerror("Error", "Invalid JSON file or file not found.")
             return
 
-        # Agrupar perfiles por nombre base
+        # Diccionario para agrupar perfiles con el mismo nombre base
         grouped_profiles = defaultdict(lambda: {"num_agents": 0, "data": None})
 
-        for name, data in profiles.items():
-            # Extraer nombre base (ejemplo: "Pedestrian" de "Pedestrian1", "Pedestrian2")
-            base_name = "".join(filter(lambda x: not x.isdigit(), name)).strip()
+        # Detectar todas las columnas personalizadas
+        detected_custom_fields = set()
 
-            # Sumar agentes si el perfil ya existe
-            grouped_profiles[base_name]["num_agents"] += data["demographics"].get("num_agents", 1)
-            grouped_profiles[base_name]["data"] = data  # Guardamos uno como referencia
+        for name, data in profiles.items():
+            base_name = "".join(filter(lambda x: not x.isdigit(), name)).strip()
+            grouped_profiles[base_name]["num_agents"] += 1  # Contar cuántos agentes hay
+            grouped_profiles[base_name]["data"] = data  # Guardar datos de referencia
+
+            # Detectar campos personalizados
+            for key in data.get("demographics", {}):
+                if key not in ["age", "gender"]:  # Excluir campos estándar
+                    detected_custom_fields.add(key)
 
         # Limpiar la tabla antes de cargar nuevos perfiles
         for row in self.tree.get_children():
             self.tree.delete(row)
+
+        # Agregar nuevas columnas personalizadas si aún no están en la tabla
+        for custom_col in detected_custom_fields:
+            if custom_col not in self.tree["columns"]:
+                self.tree["columns"] += (custom_col,)
+                self.tree.heading(custom_col, text=custom_col)
+                self.tree.column(custom_col, width=120)
 
         # Insertar perfiles agrupados en la tabla
         for base_name, info in grouped_profiles.items():
@@ -317,42 +329,106 @@ class CreateProfile(tk.Frame):
             num_agents = info["num_agents"]
 
             gender = data["demographics"].get("gender", "N/A")
+            age = data["demographics"].get("age", "N/A")
             eco = data["mobility_preferences"].get("Eco consciousness", "N/A")
             time_sens = data["mobility_preferences"].get("Time sensitivity", "N/A")
             comfort = data["mobility_preferences"].get("Comfort preference", "N/A")
             budget = data["mobility_preferences"].get("Budget sensitivity", "N/A")
             reliability = data["mobility_preferences"].get("Reliability sensitivity", "N/A")
             arrival_time = data["environment"]["arrival_time_limit"].get("time", "N/A")
+            purpose = data["environment"]["arrival_time_limit"].get("purpose", "N/A")
+            transport_options = ", ".join(data["environment"].get("transport_options", [])) if data["environment"].get(
+                "transport_options") else "None"
 
-            self.tree.insert("", "end", values=(
-                base_name, num_agents, gender, eco, time_sens, comfort, budget, reliability, arrival_time, False
-            ))
+            # Obtener valores de campos personalizados
+            custom_values = [data["demographics"].get(col, "N/A") for col in detected_custom_fields]
+
+            # Agregar datos a la tabla
+            profile_data = (base_name, age, num_agents, gender, eco, time_sens, comfort, budget, reliability,
+                            arrival_time, purpose, transport_options) + tuple(custom_values)
+
+            self.tree.insert("", "end", values=profile_data)
 
         messagebox.showinfo("Success", f"Profiles loaded successfully from {file_path}")
 
     def generate_json(self):
-        """Guarda todos los perfiles de la lista en un archivo JSON."""
+        """Genera múltiples perfiles en JSON según el número de agentes, incluyendo campos personalizados desde la tabla."""
+
         profiles = {}
+
+        # Obtener todas las columnas del Treeview, excluyendo "Select" (el checkbox de la tabla)
+        tree_columns = list(self.tree["columns"])
+        if "Select" in tree_columns:
+            tree_columns.remove("Select")
+
+        # Determinar qué columnas son personalizadas (todas después de la columna "Transport options")
+        base_columns_count = 12  # Número de columnas estándar hasta "Transport options"
+        custom_columns = tree_columns[base_columns_count:]  # Obtener columnas personalizadas
+
         for item in self.tree.get_children():
             values = self.tree.item(item, "values")
-            profiles[values[0]] = {
-                "demographics": {
-                    "num_agents": values[1],
-                    "gender": values[2],
-                },
-                "mobility_preferences": {
-                    "Eco consciousness": values[3],
-                    "Time sensitivity": values[4],
-                    "Comfort preference": values[5],
-                    "Budget sensitivity": values[6],
-                    "Reliability sensitivity": values[7],
-                }
-            }
 
-        with open("generated_profiles.json", "w") as file:
+            # Extraer valores base
+            profile_base_name = values[0]  # Nombre base (ejemplo: "Pedestrian")
+            profile_age = values[1]
+            num_agents = int(values[2])  # Número de agentes
+            gender = values[3]
+            eco = values[4]
+            time_sens = values[5]
+            comfort = values[6]
+            budget = values[7]
+            reliability = values[8]
+            arrival_time = values[9]
+            purpose = values[10]
+            transport_options = values[11].split(", ") if values[11] != "None" else []
+
+            # Extraer los valores personalizados desde la tabla
+            custom_fields = {}
+            for i, col_name in enumerate(custom_columns):
+                custom_fields[col_name] = values[i + base_columns_count]  # Tomar el valor correspondiente
+
+            # Generar múltiples perfiles numerados si num_agents > 1
+            for i in range(1, num_agents + 1):
+                profile_name = f"{profile_base_name}{i}"  # Ejemplo: Pedestrian1, Pedestrian2...
+
+                profiles[profile_name] = {
+                    "demographics": {
+                        "age": profile_age,
+                        "gender": gender,
+                        **custom_fields  # Incluir campos personalizados
+                    },
+                    "mobility_preferences": {
+                        "Eco consciousness": eco,
+                        "Time sensitivity": time_sens,
+                        "Comfort preference": comfort,
+                        "Budget sensitivity": budget,
+                        "Reliability sensitivity": reliability,
+                    },
+                    "environment": {
+                        "arrival_time_limit": {
+                            "type": self.arrival_type.get(),
+                            "time": arrival_time,
+                            "purpose": purpose,
+                        },
+                        "transport_options": transport_options
+                    }
+                }
+
+        # Pedir al usuario que seleccione dónde guardar el JSON
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All Files", "*.*")],
+            title="Save JSON File"
+        )
+
+        if not file_path:
+            return  # Si el usuario cancela, no hacer nada
+
+        # Guardar JSON en el archivo seleccionado
+        with open(file_path, "w") as file:
             json.dump(profiles, file, indent=4)
 
-        messagebox.showinfo("Success", "JSON file generated!")
+        messagebox.showinfo("Success", f"{len(profiles)} profiles saved successfully to {file_path}!")
 
     def delete_profiles(self):
         """Elimina los perfiles seleccionados de la lista."""
