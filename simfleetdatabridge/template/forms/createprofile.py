@@ -150,16 +150,15 @@ class CreateProfile(tk.Frame):
             chk.pack(side=tk.LEFT, padx=5)
             self.transport_options_vars[mode] = var
 
-
-        # ========== BOTONES ==========
+        # ========= BOTONES =========
         self.button_frame = tk.Frame(self.main_frame, bg="white")
         self.button_frame.grid(row=2, column=0, columnspan=2, pady=10)
 
         self.load_button = tk.Button(self.button_frame, text="Load Profiles", command=self.load_profiles)
         self.load_button.pack(side=tk.LEFT, padx=5)
 
-        self.generate_button = tk.Button(self.button_frame, text="Generate JSON", command=self.generate_json)
-        self.generate_button.pack(side=tk.LEFT, padx=5)
+        self.modify_button = tk.Button(self.button_frame, text="Modify", command=self.modify_profile, state=tk.DISABLED)
+        self.modify_button.pack(side=tk.LEFT, padx=5)
 
         self.save_button = tk.Button(self.button_frame, text="Save", command=self.save_profile)
         self.save_button.pack(side=tk.LEFT, padx=5)
@@ -167,8 +166,17 @@ class CreateProfile(tk.Frame):
         self.delete_button = tk.Button(self.button_frame, text="Delete", command=self.delete_profiles)
         self.delete_button.pack(side=tk.LEFT, padx=5)
 
-        # ========== TABLA DE PERFILES ==========
+        self.generate_button = tk.Button(self.button_frame, text="Generate JSON", command=self.generate_json)
+        self.generate_button.pack(side=tk.LEFT, padx=5)
+
+        # ========= TABLA =========
         self.create_profiles_table()
+
+        # ========= VARIABLE PARA GUARDAR ID DEL REGISTRO QUE SE MODIFICA =========
+        self.selected_item_id = None
+
+        # Vincular evento de selección de tabla a la función de habilitar el botón "Modify"
+        self.tree.bind("<<TreeviewSelect>>", self.enable_modify_button)
 
     def create_profiles_table(self):
         """Crea la tabla de perfiles en la interfaz con soporte para campos dinámicos."""
@@ -193,6 +201,13 @@ class CreateProfile(tk.Frame):
         self.tree.configure(yscroll=scrollbar.set)
         scrollbar.grid(row=3, column=2, sticky="ns")
 
+    def enable_modify_button(self, event):
+        """Habilita el botón Modify cuando se selecciona un perfil en la tabla."""
+        selected = self.tree.selection()
+        if selected:
+            self.modify_button.config(state=tk.NORMAL)
+        else:
+            self.modify_button.config(state=tk.DISABLED)
 
     def validate_time_format(self, time_str):
         """Verifica si el tiempo ingresado sigue el formato correcto (HH:MM AM/PM)."""
@@ -200,7 +215,7 @@ class CreateProfile(tk.Frame):
         return re.match(time_pattern, time_str) is not None
 
     def save_profile(self):
-        """Guarda un perfil en la lista asegurando que todos los valores del formulario estén incluidos."""
+        """Guarda un perfil nuevo o actualiza uno existente si se está modificando, con confirmación."""
 
         profile_name = self.entry_name.get().strip()
         profile_age = self.entry_age.get().strip()
@@ -209,7 +224,6 @@ class CreateProfile(tk.Frame):
         arrival_time_value = self.arrival_time.get().strip()
         purpose_value = self.purpose.get().strip()
 
-        # Variables opcionales: Si están vacías, se asigna "N/A"
         education = self.entry_education.get().strip() if self.entry_education.get().strip() else "N/A"
         occupation = self.entry_occupation.get().strip() if self.entry_occupation.get().strip() else "N/A"
         annual_income = self.entry_income.get().strip() if self.entry_income.get().strip() else "N/A"
@@ -222,33 +236,39 @@ class CreateProfile(tk.Frame):
             messagebox.showerror("Error", "Profile age is required.")
             return
 
-        # Validar formato de la hora
         if arrival_time_value and not self.validate_time_format(arrival_time_value):
             messagebox.showerror("Error", "Invalid time format! Please enter time as HH:MM AM/PM (e.g., 01:20 PM).")
             return
 
-        # Obtener valores de movilidad
         eco = self.mobility_vars["Eco consciousness"].get()
         time_sens = self.mobility_vars["Time sensitivity"].get()
         comfort = self.mobility_vars["Comfort preference"].get()
         budget = self.mobility_vars["Budget sensitivity"].get()
         reliability = self.mobility_vars["Reliability sensitivity"].get()
 
-        # Obtener opciones de transporte seleccionadas
         transport_selected = [mode for mode, var in self.transport_options_vars.items() if var.get()]
         transport_str = ", ".join(transport_selected) if transport_selected else "None"
 
-        # Crear perfil con todos los valores
         profile_data = (
             profile_name, profile_age, num_agents, gender, education, occupation, annual_income,
             eco, time_sens, comfort, budget, reliability,
             arrival_time_value, purpose_value, transport_str
         )
 
-        # Insertar perfil en la tabla con columnas dinámicas
-        self.tree.insert("", "end", values=profile_data)
+        if self.selected_item_id:
+            # Preguntar antes de sobrescribir el perfil existente
+            confirm = messagebox.askyesno("Confirm Modification",
+                                          f"Are you sure you want to modify the profile '{profile_name}'?")
+            if confirm:
+                self.tree.item(self.selected_item_id, values=profile_data)
+                self.selected_item_id = None  # Restablecer para futuras creaciones
+            else:
+                return  # Si el usuario cancela, no hacer nada
+        else:
+            # Guardar un nuevo perfil
+            self.tree.insert("", "end", values=profile_data)
 
-        # Limpiar los campos después de guardar
+        # Limpiar el formulario después de guardar
         self.entry_name.delete(0, tk.END)
         self.entry_age.delete(0, tk.END)
         self.gender_dropdown.current(0)
@@ -259,9 +279,54 @@ class CreateProfile(tk.Frame):
         self.entry_occupation.delete(0, tk.END)
         self.entry_income.delete(0, tk.END)
 
-        # Reiniciar selección de transporte
         for var in self.transport_options_vars.values():
             var.set(False)
+
+    def modify_profile(self):
+        """Carga los datos del perfil seleccionado en el formulario para su modificación."""
+
+        selected_item = self.tree.selection()
+        if not selected_item:
+            messagebox.showerror("Error", "Please select a profile to modify.")
+            return
+
+        self.selected_item_id = selected_item[0]  # Guardamos el ID del registro seleccionado
+        values = self.tree.item(self.selected_item_id, "values")
+
+        # Cargar valores en el formulario
+        self.entry_name.delete(0, tk.END)
+        self.entry_name.insert(0, values[0])
+
+        self.entry_age.delete(0, tk.END)
+        self.entry_age.insert(0, values[1])
+
+        self.agents_slider.set(values[2])
+        self.gender_dropdown.set(values[3])
+        self.entry_education.delete(0, tk.END)
+        self.entry_education.insert(0, values[4])
+
+        self.entry_occupation.delete(0, tk.END)
+        self.entry_occupation.insert(0, values[5])
+
+        self.entry_income.delete(0, tk.END)
+        self.entry_income.insert(0, values[6])
+
+        self.mobility_vars["Eco consciousness"].set(values[7])
+        self.mobility_vars["Time sensitivity"].set(values[8])
+        self.mobility_vars["Comfort preference"].set(values[9])
+        self.mobility_vars["Budget sensitivity"].set(values[10])
+        self.mobility_vars["Reliability sensitivity"].set(values[11])
+
+        self.arrival_time.delete(0, tk.END)
+        self.arrival_time.insert(0, values[12])
+
+        self.purpose.delete(0, tk.END)
+        self.purpose.insert(0, values[13])
+
+        # Restaurar las opciones de transporte
+        transport_options = values[14].split(", ") if values[14] != "None" else []
+        for mode, var in self.transport_options_vars.items():
+            var.set(mode in transport_options)
 
     def load_profiles(self):
         """Carga perfiles desde un archivo JSON y los agrega a la tabla, incluyendo campos personalizados."""
