@@ -11,7 +11,6 @@ class CreateProfile(tk.Frame):
         super().__init__(parent, bg="#EAF2F8")
 
         self.custom_fields = []  # Lista para almacenar campos dinámicos
-        self.max_fields = 3  # Límite de campos personalizables
         self.transport_options = []  # Opciones de transporte seleccionadas
 
         self.create_widgets()
@@ -58,13 +57,25 @@ class CreateProfile(tk.Frame):
         self.agents_slider.set(50)
         self.agents_slider.grid(row=3, column=1, padx=5, pady=2)
 
-        # ========== BOTÓN "ADD" PARA VARIABLES PERSONALIZADAS ==========
-        self.custom_field_frame = tk.Frame(self.demographics_frame, bg="white")
-        self.custom_field_frame.grid(row=4, column=0, columnspan=2, padx=5, pady=5)
+        # ========== CAMPOS OPCIONALES ==========
+        tk.Label(self.demographics_frame, text="Education:", font=("Arial", 9, "bold"), bg="white").grid(row=4, column=0,
+                                                                                                 sticky="w", padx=5,
+                                                                                                 pady=2)
+        self.entry_education = tk.Entry(self.demographics_frame, width=20)
+        self.entry_education.grid(row=4, column=1, padx=5, pady=2)
 
-        self.add_button = tk.Button(self.demographics_frame, text="Add +", font=("Arial", 10, "bold"), bg="#D5DBDB",
-                                    command=self.add_custom_field)
-        self.add_button.grid(row=4, column=0, columnspan=1, padx=5, pady=5)
+        tk.Label(self.demographics_frame, text="Occupation:", font=("Arial", 9, "bold"), bg="white").grid(row=5, column=0,
+                                                                                                  sticky="w", padx=5,
+                                                                                                  pady=2)
+        self.entry_occupation = tk.Entry(self.demographics_frame, width=20)
+        self.entry_occupation.grid(row=5, column=1, padx=5, pady=2)
+
+        tk.Label(self.demographics_frame, text="Annual Income:", font=("Arial", 9, "bold"), bg="white").grid(row=6, column=0,
+                                                                                                     sticky="w", padx=5,
+                                                                                                     pady=2)
+        self.entry_income = tk.Entry(self.demographics_frame, width=20)
+        self.entry_income.grid(row=6, column=1, padx=5, pady=2)
+
 
         # ========== MOBILITY PREFERENCES ==========
         self.mobility_frame = tk.LabelFrame(self.main_frame, text="Mobility Preferences", font=("Arial", 10, "bold"),
@@ -163,8 +174,8 @@ class CreateProfile(tk.Frame):
         """Crea la tabla de perfiles en la interfaz con soporte para campos dinámicos."""
 
         # Definir columnas base
-        self.columns = ["Name", "Age", "Nº agents", "Gender", "Eco", "Time", "Comfort", "Budget", "Reliability",
-                        "Hour", "Purpose", "Transport options", "Select"]
+        self.columns = ["Name", "Age", "Nº agents", "Gender", "Education", "Occupation", "Income", "Eco", "Time", "Comfort", "Budget", "Reliability",
+                        "Hour", "Purpose", "Transport options"]
 
         # Crear Treeview con las columnas base
         self.tree = ttk.Treeview(self.main_frame, columns=self.columns, show="headings", selectmode="extended")
@@ -183,27 +194,6 @@ class CreateProfile(tk.Frame):
         scrollbar.grid(row=3, column=2, sticky="ns")
 
 
-    def add_custom_field(self):
-        """ Agrega un nuevo campo personalizado si no se ha alcanzado el límite """
-        if len(self.custom_fields) < self.max_fields:
-            row_index = len(self.custom_fields) + 5
-            label_entry = tk.Entry(self.demographics_frame, width=12)
-            label_entry.grid(row=row_index, column=0, padx=5, pady=2)
-
-            value_entry = tk.Entry(self.demographics_frame, width=20)
-            value_entry.grid(row=row_index, column=1, padx=5, pady=2)
-
-            self.custom_fields.append((label_entry, value_entry))
-
-            # Agregar la columna dinámica a self.tree si aún no está
-            custom_label = label_entry.get().strip()
-            if custom_label and custom_label not in self.tree["columns"]:
-                self.tree["columns"] = self.tree["columns"] + (custom_label,)
-                self.tree.heading(custom_label, text=custom_label)
-                self.tree.column(custom_label, width=100)
-        else:
-            self.add_button.config(state="disabled")
-
     def validate_time_format(self, time_str):
         """Verifica si el tiempo ingresado sigue el formato correcto (HH:MM AM/PM)."""
         time_pattern = r"^(0[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$"
@@ -218,6 +208,11 @@ class CreateProfile(tk.Frame):
         gender = self.gender_var.get()
         arrival_time_value = self.arrival_time.get().strip()
         purpose_value = self.purpose.get().strip()
+
+        # Variables opcionales: Si están vacías, se asigna "N/A"
+        education = self.entry_education.get().strip() if self.entry_education.get().strip() else "N/A"
+        occupation = self.entry_occupation.get().strip() if self.entry_occupation.get().strip() else "N/A"
+        annual_income = self.entry_income.get().strip() if self.entry_income.get().strip() else "N/A"
 
         if not profile_name:
             messagebox.showerror("Error", "Profile name is required.")
@@ -243,20 +238,12 @@ class CreateProfile(tk.Frame):
         transport_selected = [mode for mode, var in self.transport_options_vars.items() if var.get()]
         transport_str = ", ".join(transport_selected) if transport_selected else "None"
 
-        # Obtener valores de los campos personalizados
-        custom_values = {}
-        for label_entry, value_entry in self.custom_fields:
-            label = label_entry.get().strip()
-            value = value_entry.get().strip()
-            if label and value:
-                custom_values[label] = value
-
-        # Crear perfil con todos los valores, incluyendo los personalizados
+        # Crear perfil con todos los valores
         profile_data = (
-                           profile_name, profile_age, num_agents, gender, eco, time_sens, comfort, budget, reliability,
-                           arrival_time_value,
-                           purpose_value, transport_str
-                       ) + tuple(custom_values.values())  # Añadir valores personalizados dinámicamente
+            profile_name, profile_age, num_agents, gender, education, occupation, annual_income,
+            eco, time_sens, comfort, budget, reliability,
+            arrival_time_value, purpose_value, transport_str
+        )
 
         # Insertar perfil en la tabla con columnas dinámicas
         self.tree.insert("", "end", values=profile_data)
@@ -268,10 +255,9 @@ class CreateProfile(tk.Frame):
         self.agents_slider.set(50)
         self.arrival_time.delete(0, tk.END)
         self.purpose.delete(0, tk.END)
-
-        for label_entry, value_entry in self.custom_fields:
-            label_entry.delete(0, tk.END)
-            value_entry.delete(0, tk.END)
+        self.entry_education.delete(0, tk.END)
+        self.entry_occupation.delete(0, tk.END)
+        self.entry_income.delete(0, tk.END)
 
         # Reiniciar selección de transporte
         for var in self.transport_options_vars.values():
@@ -299,29 +285,13 @@ class CreateProfile(tk.Frame):
         # Diccionario para agrupar perfiles con el mismo nombre base
         grouped_profiles = defaultdict(lambda: {"num_agents": 0, "data": None})
 
-        # Detectar todas las columnas personalizadas
-        detected_custom_fields = set()
 
         for name, data in profiles.items():
             base_name = "".join(filter(lambda x: not x.isdigit(), name)).strip()
             grouped_profiles[base_name]["num_agents"] += 1  # Contar cuántos agentes hay
             grouped_profiles[base_name]["data"] = data  # Guardar datos de referencia
 
-            # Detectar campos personalizados
-            for key in data.get("demographics", {}):
-                if key not in ["age", "gender"]:  # Excluir campos estándar
-                    detected_custom_fields.add(key)
 
-        # Limpiar la tabla antes de cargar nuevos perfiles
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-
-        # Agregar nuevas columnas personalizadas si aún no están en la tabla
-        for custom_col in detected_custom_fields:
-            if custom_col not in self.tree["columns"]:
-                self.tree["columns"] += (custom_col,)
-                self.tree.heading(custom_col, text=custom_col)
-                self.tree.column(custom_col, width=120)
 
         # Insertar perfiles agrupados en la tabla
         for base_name, info in grouped_profiles.items():
@@ -330,6 +300,9 @@ class CreateProfile(tk.Frame):
 
             gender = data["demographics"].get("gender", "N/A")
             age = data["demographics"].get("age", "N/A")
+            education = data["demographics"].get("education", "N/A")
+            occupation = data["demographics"].get("occupation", "N/A")
+            annual_income = data["demographics"].get("annual_income", "N/A")
             eco = data["mobility_preferences"].get("Eco consciousness", "N/A")
             time_sens = data["mobility_preferences"].get("Time sensitivity", "N/A")
             comfort = data["mobility_preferences"].get("Comfort preference", "N/A")
@@ -340,30 +313,18 @@ class CreateProfile(tk.Frame):
             transport_options = ", ".join(data["environment"].get("transport_options", [])) if data["environment"].get(
                 "transport_options") else "None"
 
-            # Obtener valores de campos personalizados
-            custom_values = [data["demographics"].get(col, "N/A") for col in detected_custom_fields]
-
             # Agregar datos a la tabla
-            profile_data = (base_name, age, num_agents, gender, eco, time_sens, comfort, budget, reliability,
-                            arrival_time, purpose, transport_options) + tuple(custom_values)
+            profile_data = (base_name, age, num_agents, gender, education, occupation, annual_income, eco, time_sens, comfort, budget, reliability,
+                            arrival_time, purpose, transport_options)
 
             self.tree.insert("", "end", values=profile_data)
 
         messagebox.showinfo("Success", f"Profiles loaded successfully from {file_path}")
 
     def generate_json(self):
-        """Genera múltiples perfiles en JSON según el número de agentes, incluyendo campos personalizados desde la tabla."""
+        """Genera múltiples perfiles en JSON según el número de agentes, excluyendo valores opcionales si están vacíos."""
 
         profiles = {}
-
-        # Obtener todas las columnas del Treeview, excluyendo "Select" (el checkbox de la tabla)
-        tree_columns = list(self.tree["columns"])
-        if "Select" in tree_columns:
-            tree_columns.remove("Select")
-
-        # Determinar qué columnas son personalizadas (todas después de la columna "Transport options")
-        base_columns_count = 12  # Número de columnas estándar hasta "Transport options"
-        custom_columns = tree_columns[base_columns_count:]  # Obtener columnas personalizadas
 
         for item in self.tree.get_children():
             values = self.tree.item(item, "values")
@@ -373,42 +334,48 @@ class CreateProfile(tk.Frame):
             profile_age = values[1]
             num_agents = int(values[2])  # Número de agentes
             gender = values[3]
-            eco = values[4]
-            time_sens = values[5]
-            comfort = values[6]
-            budget = values[7]
-            reliability = values[8]
-            arrival_time = values[9]
-            purpose = values[10]
-            transport_options = values[11].split(", ") if values[11] != "None" else []
+            education = values[4].strip() if values[4] and values[4] != "N/A" else None
+            occupation = values[5].strip() if values[5] and values[5] != "N/A" else None
+            annual_income = values[6].strip() if values[6] and values[6] != "N/A" else None
+            eco = values[7]
+            time_sens = values[8]
+            comfort = values[9]
+            budget = values[10]
+            reliability = values[11]
+            arrival_time = values[12]
+            purpose = values[13]
+            transport_options = values[14].split(", ") if values[14] != "None" else []
 
-            # Extraer los valores personalizados desde la tabla
-            custom_fields = {}
-            for i, col_name in enumerate(custom_columns):
-                custom_fields[col_name] = values[i + base_columns_count]  # Tomar el valor correspondiente
+            # Construir JSON dinámicamente, excluyendo valores vacíos
+            demographics = {
+                "age": profile_age,
+                "gender": gender
+            }
+            if education:
+                demographics["education"] = education
+            if occupation:
+                demographics["occupation"] = occupation
+            if annual_income:
+                demographics["annual_income"] = annual_income
 
             # Generar múltiples perfiles numerados si num_agents > 1
             for i in range(1, num_agents + 1):
                 profile_name = f"{profile_base_name}{i}"  # Ejemplo: Pedestrian1, Pedestrian2...
 
                 profiles[profile_name] = {
-                    "demographics": {
-                        "age": profile_age,
-                        "gender": gender,
-                        **custom_fields  # Incluir campos personalizados
-                    },
+                    "demographics": demographics,  # Solo los valores opcionales que no sean vacíos
                     "mobility_preferences": {
                         "Eco consciousness": eco,
                         "Time sensitivity": time_sens,
                         "Comfort preference": comfort,
                         "Budget sensitivity": budget,
-                        "Reliability sensitivity": reliability,
+                        "Reliability sensitivity": reliability
                     },
                     "environment": {
                         "arrival_time_limit": {
                             "type": self.arrival_type.get(),
                             "time": arrival_time,
-                            "purpose": purpose,
+                            "purpose": purpose
                         },
                         "transport_options": transport_options
                     }
