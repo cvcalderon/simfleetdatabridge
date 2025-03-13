@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import json
 import os
+import re
 
 
 class CreateProfile(tk.Frame):
@@ -129,9 +130,35 @@ class CreateProfile(tk.Frame):
             self.transport_options_vars[mode] = var
 
         # ========== BOTÓN "SAVE" ==========
-        self.save_button = tk.Button(self.main_frame, text="Save", font=("Arial", 10, "bold"), bg="#AED6F1",
-                                     command=self.save_profile)
-        self.save_button.grid(row=2, column=0, columnspan=2, pady=10)
+        # self.save_button = tk.Button(self.main_frame, text="Save", font=("Arial", 10, "bold"), bg="#AED6F1",
+        #                              command=self.save_profile)
+        # self.save_button.grid(row=2, column=0, columnspan=2, pady=10)
+
+        # ========== BOTONES ==========
+        self.button_frame = tk.Frame(self.main_frame, bg="white")
+        self.button_frame.grid(row=2, column=0, columnspan=2, pady=10)
+
+        self.load_button = tk.Button(self.button_frame, text="Load Profiles", command=self.load_profiles)
+        self.load_button.pack(side=tk.LEFT, padx=5)
+
+        self.generate_button = tk.Button(self.button_frame, text="Generate JSON", command=self.generate_json)
+        self.generate_button.pack(side=tk.LEFT, padx=5)
+
+        self.save_button = tk.Button(self.button_frame, text="Save", command=self.save_profile)
+        self.save_button.pack(side=tk.LEFT, padx=5)
+
+        self.delete_button = tk.Button(self.button_frame, text="Delete", command=self.delete_profiles)
+        self.delete_button.pack(side=tk.LEFT, padx=5)
+
+        # ========== TABLA DE PERFILES ==========
+        columns = ("Name", "Nº agents", "Gender", "Eco", "Time", "Comfort", "Budget", "Reliability", "Select")
+        self.tree = ttk.Treeview(self.main_frame, columns=columns, show="headings", selectmode="extended")
+
+        for col in columns:
+            self.tree.heading(col, text=col)
+            self.tree.column(col, width=100)
+
+        self.tree.grid(row=3, column=0, columnspan=2, pady=10)
 
     def add_custom_field(self):
         """ Agrega un nuevo campo de variable si no se supera el límite """
@@ -147,62 +174,48 @@ class CreateProfile(tk.Frame):
         else:
             self.add_button.config(state="disabled")
 
+    def validate_time_format(self, time_str):
+        """Verifica si el tiempo ingresado sigue el formato correcto (HH:MM AM/PM)."""
+        time_pattern = r"^(0[1-9]|1[0-2]):[0-5][0-9] (AM|PM)$"
+        return re.match(time_pattern, time_str) is not None
+
     def save_profile(self):
-        """ Guarda los datos del perfil en un archivo JSON considerando el número de agentes """
+        """Guarda un perfil en la lista asegurando que todos los valores del formulario estén incluidos."""
 
-        profile_base_name = self.entry_name.get().strip()
+        profile_name = self.entry_name.get().strip()
         num_agents = self.agents_slider.get()
+        gender = self.gender_var.get()
+        arrival_time_value = self.arrival_time.get().strip()
+        purpose_value = self.purpose.get().strip()
 
-        if not profile_base_name:
+        if not profile_name:
             messagebox.showerror("Error", "Profile name is required.")
             return
 
-        file_path = "profiles.json"
+        # Validar formato de la hora
+        if arrival_time_value and not self.validate_time_format(arrival_time_value):
+            messagebox.showerror("Error", "Invalid time format! Please enter time as HH:MM AM/PM (e.g., 01:20 PM).")
+            return
 
-        # Cargar datos previos si el archivo existe
-        if os.path.exists(file_path):
-            with open(file_path, "r") as file:
-                try:
-                    existing_data = json.load(file)
-                except json.JSONDecodeError:
-                    existing_data = {}
-        else:
-            existing_data = {}
+        # Obtener valores de movilidad
+        eco = self.mobility_vars["Eco consciousness"].get()
+        time_sens = self.mobility_vars["Time sensitivity"].get()
+        comfort = self.mobility_vars["Comfort preference"].get()
+        budget = self.mobility_vars["Budget sensitivity"].get()
+        reliability = self.mobility_vars["Reliability sensitivity"].get()
 
-        # Generar múltiples perfiles según el número de agentes
-        for i in range(1, num_agents + 1):
-            profile_name = f"{profile_base_name}{i}"  # Ejemplo: Pedestrian1, Pedestrian2...
+        # Obtener opciones de transporte seleccionadas
+        transport_selected = [mode for mode, var in self.transport_options_vars.items() if var.get()]
+        transport_str = ", ".join(transport_selected) if transport_selected else "None"
 
-            profile_data = {
-                "demographics": {
-                    "gender": self.gender_var.get(),
-                },
-                "mobility_preferences": {pref: var.get() for pref, var in self.mobility_vars.items()},
-                "environment": {
-                    "arrival_time_limit": {
-                        "type": self.arrival_type.get(),
-                        "time": self.arrival_time.get(),
-                        "purpose": self.purpose.get(),
-                    },
-                    "transport_options": [mode for mode, var in self.transport_options_vars.items() if var.get()]
-                }
-            }
+        # Crear perfil con todos los valores
+        profile_data = (
+            profile_name, num_agents, gender, eco, time_sens, comfort, budget, reliability, arrival_time_value,
+            purpose_value, transport_str, False
+        )
 
-            # Agregar los campos personalizados
-            for label_entry, value_entry in self.custom_fields:
-                label = label_entry.get().strip()
-                value = value_entry.get().strip()
-                if label and value:
-                    profile_data["demographics"][label] = value
-
-            # Agregar al JSON
-            existing_data[profile_name] = profile_data
-
-        # Guardar archivo actualizado
-        with open(file_path, "w") as file:
-            json.dump(existing_data, file, indent=4)
-
-        messagebox.showinfo("Success", f"{num_agents} profiles saved successfully!")
+        # Insertar perfil en la tabla
+        self.tree.insert("", "end", values=profile_data)
 
         # Limpiar los campos después de guardar
         self.entry_name.delete(0, tk.END)
@@ -211,15 +224,139 @@ class CreateProfile(tk.Frame):
         self.arrival_time.delete(0, tk.END)
         self.purpose.delete(0, tk.END)
 
-        for label_entry, value_entry in self.custom_fields:
-            label_entry.destroy()
-            value_entry.destroy()
-
-        self.custom_fields.clear()
-        self.add_button.config(state="normal")
-
-        # Reiniciar selección de transporte
         for var in self.transport_options_vars.values():
             var.set(False)
+
+    def load_profiles(self):
+        """Carga perfiles desde el archivo JSON y los añade a la lista."""
+        file_path = "profiles.json"
+        if not os.path.exists(file_path):
+            messagebox.showerror("Error", "No profiles found.")
+            return
+
+        with open(file_path, "r") as file:
+            profiles = json.load(file)
+
+        for name, data in profiles.items():
+            num_agents = data["demographics"].get("num_agents", 1)
+            gender = data["demographics"].get("gender", "N/A")
+            eco = data["mobility_preferences"].get("Eco consciousness", "N/A")
+            time_sens = data["mobility_preferences"].get("Time sensitivity", "N/A")
+            comfort = data["mobility_preferences"].get("Comfort preference", "N/A")
+            budget = data["mobility_preferences"].get("Budget sensitivity", "N/A")
+            reliability = data["mobility_preferences"].get("Reliability sensitivity", "N/A")
+
+            self.tree.insert("", "end", values=(name, num_agents, gender, eco, time_sens, comfort, budget, reliability, False))
+
+    def generate_json(self):
+        """Guarda todos los perfiles de la lista en un archivo JSON."""
+        profiles = {}
+        for item in self.tree.get_children():
+            values = self.tree.item(item, "values")
+            profiles[values[0]] = {
+                "demographics": {
+                    "num_agents": values[1],
+                    "gender": values[2],
+                },
+                "mobility_preferences": {
+                    "Eco consciousness": values[3],
+                    "Time sensitivity": values[4],
+                    "Comfort preference": values[5],
+                    "Budget sensitivity": values[6],
+                    "Reliability sensitivity": values[7],
+                }
+            }
+
+        with open("generated_profiles.json", "w") as file:
+            json.dump(profiles, file, indent=4)
+
+        messagebox.showinfo("Success", "JSON file generated!")
+
+    def delete_profiles(self):
+        """Elimina los perfiles seleccionados de la lista."""
+        selected_items = self.tree.selection()
+        for item in selected_items:
+            self.tree.delete(item)
+
+    # def save_profile(self):
+    #     """ Guarda los datos del perfil en un archivo JSON considerando el número de agentes """
+    #
+    #     profile_base_name = self.entry_name.get().strip()
+    #     num_agents = self.agents_slider.get()
+    #     arrival_time_value = self.arrival_time.get().strip()
+    #
+    #     if not profile_base_name:
+    #         messagebox.showerror("Error", "Profile name is required.")
+    #         return
+    #
+    #     # Validar el formato del tiempo antes de guardar
+    #     if arrival_time_value and not self.validate_time_format(arrival_time_value):
+    #         messagebox.showerror("Error", "Invalid time format! Please enter time as HH:MM AM/PM (e.g., 01:20 PM).")
+    #         return
+    #
+    #     file_path = "profiles.json"
+    #
+    #     # Cargar datos previos si el archivo existe
+    #     if os.path.exists(file_path):
+    #         with open(file_path, "r") as file:
+    #             try:
+    #                 existing_data = json.load(file)
+    #             except json.JSONDecodeError:
+    #                 existing_data = {}
+    #     else:
+    #         existing_data = {}
+    #
+    #     # Generar múltiples perfiles según el número de agentes
+    #     for i in range(1, num_agents + 1):
+    #         profile_name = f"{profile_base_name}{i}"  # Ejemplo: Pedestrian1, Pedestrian2...
+    #
+    #         profile_data = {
+    #             "demographics": {
+    #                 "gender": self.gender_var.get(),
+    #             },
+    #             "mobility_preferences": {pref: var.get() for pref, var in self.mobility_vars.items()},
+    #             "environment": {
+    #                 "arrival_time_limit": {
+    #                     "type": self.arrival_type.get(),
+    #                     "time": arrival_time_value,
+    #                     "purpose": self.purpose.get(),
+    #                 },
+    #                 "transport_options": [mode for mode, var in self.transport_options_vars.items() if var.get()]
+    #             }
+    #         }
+    #
+    #         # Agregar los campos personalizados
+    #         for label_entry, value_entry in self.custom_fields:
+    #             label = label_entry.get().strip()
+    #             value = value_entry.get().strip()
+    #             if label and value:
+    #                 profile_data["demographics"][label] = value
+    #
+    #         # Agregar al JSON
+    #         existing_data[profile_name] = profile_data
+    #
+    #     # Guardar archivo actualizado
+    #     with open(file_path, "w") as file:
+    #         json.dump(existing_data, file, indent=4)
+    #
+    #     messagebox.showinfo("Success", f"{num_agents} profiles saved successfully!")
+    #
+    #     # Limpiar los campos después de guardar
+    #     self.entry_name.delete(0, tk.END)
+    #     self.gender_dropdown.current(0)
+    #     self.agents_slider.set(50)
+    #     self.arrival_time.delete(0, tk.END)
+    #     self.purpose.delete(0, tk.END)
+    #
+    #     for label_entry, value_entry in self.custom_fields:
+    #         label_entry.destroy()
+    #         value_entry.destroy()
+    #
+    #     self.custom_fields.clear()
+    #     self.add_button.config(state="normal")
+    #
+    #     # Reiniciar selección de transporte
+    #     for var in self.transport_options_vars.values():
+    #         var.set(False)
 
 
