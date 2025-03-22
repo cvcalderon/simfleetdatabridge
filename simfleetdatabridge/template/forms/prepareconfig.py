@@ -1,7 +1,8 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from tkintermapview import TkinterMapView
 import random
+import json
 
 class PrepareSimConfig(tk.Frame):
     def __init__(self, parent, tree_data):
@@ -42,6 +43,9 @@ class PrepareSimConfig(tk.Frame):
 
         self.btn_add_agents = tk.Button(frame_controls, text="Add", command=self.generate_agents)
         self.btn_add_agents.grid(row=0, column=4, padx=5)
+
+        self.btn_export_json = tk.Button(frame_controls, text="Export to JSON", command=self.export_to_json)
+        self.btn_export_json.grid(row=0, column=5, padx=5)
 
         # Tabla de perfiles
         self.tree = ttk.Treeview(self, columns=("Name", "Nº agents", "Assigned"), show="headings")
@@ -156,3 +160,52 @@ class PrepareSimConfig(tk.Frame):
         messagebox.showinfo("Generación completada", f"Se generaron {num_agents} agentes.")
 
 
+    def export_to_json(self):
+        """Exporta los agentes generados a un archivo JSON con la estructura del simulador"""
+        if not self.agents_data:
+            messagebox.showerror("Error", "No hay agentes generados para exportar.")
+            return
+
+        # Estructura del JSON base
+        simulation_data = {
+            "fleets": [],
+            "transports": [],
+            "customers": [],
+            "stations": [],
+            "stops": [],
+            "lines": [],
+            "vehicles": [],
+            "simulation_name": "city",
+            "max_time": 120,
+            "transport_strategy": "simfleetdatabridge.actions.strategies.taxi.FSMTaxiBehaviour",
+            "customer_strategy": "simfleet.common.lib.customers.strategies.taxicustomer.AcceptFirstRequestBehaviour",
+            "fleetmanager_strategy": "simfleet.common.lib.fleet.strategies.fleetmanager.DelegateRequestBehaviour",
+            "mobility_metrics": "simfleetdatabridge.actions.metrics.control.AgentsMobilityClass",
+            "fleetmanager_name": "fleetmanager",
+            "fleetmanager_password": "fleetmanager_passwd",
+            "host": "localhost",
+            "http_port": 9150,
+            "http_ip": "localhost"
+        }
+
+        # Agregar los agentes al JSON
+        for profile_name, agents in self.agents_data.items():
+            for agent_name, coords in agents.items():
+                agent_data = {
+                    "class": "simfleet.common.lib.customers.models.pedestrian.PedestrianAgent",
+                    "strategy": "simfleet.common.lib.customers.strategies.pedestrian.FSMOneShotPedestrianBehaviour",
+                    "position": list(coords["Origen"]),
+                    "destination": list(coords["Destino"]),
+                    "name": agent_name,
+                    "password": "secret",
+                    "fleet_type": "taxi",
+                    "delay": 0
+                }
+                simulation_data["customers"].append(agent_data)
+
+        # Guardar el archivo JSON
+        file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
+        if file_path:
+            with open(file_path, "w", encoding="utf-8") as json_file:
+                json.dump(simulation_data, json_file, indent=4)
+            messagebox.showinfo("Exportación completa", f"Archivo guardado en: {file_path}")

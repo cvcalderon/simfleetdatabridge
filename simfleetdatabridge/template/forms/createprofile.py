@@ -138,7 +138,7 @@ class CreateProfile(tk.Frame):
                                                                                                                 pady=2)
 
         self.transport_options_vars = {}
-        transport_modes = ["walk", "taxi", "car", "bike"]
+        transport_modes = ["walk", "taxi", "personal-car", "personal-bike"]
 
         self.transport_frame = tk.Frame(self.environment_frame, bg="white")
         self.transport_frame.grid(row=5, column=0, columnspan=2, padx=5, pady=2)
