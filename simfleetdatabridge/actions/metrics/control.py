@@ -123,7 +123,8 @@ class AgentsMobilityClass(BaseStatisticsClass):
             "trip_time": trip_time,
             "trip_completion_timestamp": trip_data["timestamp"],
             "cost": trip_data["cost"],
-            "transport": trip_data["transport"],
+            #"transport": trip_data["transport"],
+            "transport": "taxi",
             "distance": trip_data["distance"]
         }).fillna(0)
 

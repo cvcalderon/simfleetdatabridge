@@ -71,18 +71,34 @@ class EngineAgent(Agent, LlmBase):
                 cost = agent_data["cost"]
                 distance_km = agent_data["distance"] / 1000
 
+                # Evaluar si el viaje fue realmente completado
+                trip_completed = trip_completion_timestamp > 0.0 and trip_time > 0.0 and distance_km > 0.0
+
+                if trip_completed:
+                    reason = "-"
+                else:
+                    reason = (
+                        f"Trip not completed: agent waited {round(waiting_time, 2)} minutes using mode '{transport_mode}', "
+                        "but was not picked up or did not reach destination."
+                    )
+
                 entry = {
                     "day": self.actual_day,
                     "departure_time": self.real_seconds_to_scaled_time(
                         trip_completion_timestamp - trip_time - waiting_time
-                    ),
-                    "arrival_time": self.real_seconds_to_scaled_time(trip_completion_timestamp),
+                    ) if trip_completed else None,
+                    "arrival_time": self.real_seconds_to_scaled_time(
+                        trip_completion_timestamp) if trip_completed else None,
                     "travel_time_min": round(trip_time, 2),
                     "waiting_time_min": round(waiting_time, 2),
                     "distance_km": distance_km,
                     "transport_mode": transport_mode,
                     "cost": cost,
-                    "decision_context": {"reason": "-", "alternative_considered": [], "satisfaction_score": None},
+                    "decision_context": {
+                        "reason": reason,
+                        "alternative_considered": [],
+                        "satisfaction_score": None
+                    },
                 }
 
                 # Inicializar memoria si no existe
@@ -236,29 +252,34 @@ class EngineBehaviour(State):
             logger.warning(f"DEBUG 3 - used_actions: {used_actions}")
             logger.warning(f"DEBUG 4 - accumulated_used_actions: {self.agent.agent_used_actions[agent_name]}")
 
-            # Check if short_memory exists and is not empty
-            if memory_agent and memory_agent.get("short_memory"):
+            # Obtener departure_time válido
+            departure_time = None
 
-                departure_time = memory_agent["short_memory"][-1].get("departure_time", None)  # Get last entry safely
+            if memory_agent and short_memory:
+                last_departure = short_memory[-1].get("departure_time")
 
-                logger.warning(f"DEBUG 2 - depature_time: {departure_time}")
-
+                if last_departure:
+                    departure_time = last_departure
+                    logger.warning(f"DEBUG 2 - departure_time from memory: {departure_time}")
+                else:
+                    logger.warning(f"{agent_name} has invalid (None) departure_time in last memory entry.")
             else:
-                # Si no hay memoria, obtener arrival_time_limit del perfil y restar 10 minutos
+                logger.warning(f"{agent_name} has no short memory.")
+
+            if not departure_time:
                 arrival_time_limit = profile_data.get(agent_name, {}).get("environment", {}).get("arrival_time_limit",
                                                                                                  {}).get("time")
-
-                logger.warning(f"DEBUG 3 - arrival_time_limit: {arrival_time_limit}")
 
                 if arrival_time_limit:
                     try:
                         arrival_time = datetime.strptime(arrival_time_limit, "%I:%M %p")
                         departure_time = (arrival_time - timedelta(minutes=10)).strftime("%I:%M %p")
+                        logger.info(f"Estimated fallback departure_time for {agent_name}: {departure_time}")
                     except ValueError:
                         logger.error(f"Incorrect time format for {agent_name}: {arrival_time_limit}")
-                        departure_time = None
+                        departure_time = "06:30 AM"
                 else:
-                    departure_time = None
+                    departure_time = "06:30 AM"
 
             # Filtrar acciones válidas (solo transportes aún no usados)
             valid_actions = [
@@ -494,6 +515,33 @@ class EngineBehaviour(State):
         # Añadir al historial la short memory
         #self.agent.long_memory_history[agent_name].append(long_memory["by_mode"][transport_mode]["reflections"])
 
+    def is_valid_decision(self, decision, profile, available_actions):
+        try:
+            transport_mode = decision["next_day_decision"]["suggested_transport_mode"]
+            departure_time = decision["next_day_decision"]["suggested_departure_time"]
+
+            # Validar transporte
+            valid_transports = set(profile.get("environment", {}).get("transport_options", []))
+            if transport_mode not in valid_transports or transport_mode not in available_actions:
+                logger.warning(f"Invalid transport mode suggested: {transport_mode}")
+                return False
+
+            # Validar hora de salida
+            departure_minutes = self.agent._convert_to_minutes(departure_time)
+
+            if not (self.agent.start_time <= departure_minutes <= self.agent.end_time):
+                logger.warning(
+                    f"Departure time {departure_time} ({departure_minutes} min) is outside allowed range "
+                    f"({self.agent.start_time}-{self.agent.end_time} min)."
+                )
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error validating LLM decision: {e}")
+            return False
+
     async def run(self):
         """
             Abstract method that should be implemented in subclasses. This is where the specific strategy of the
@@ -515,93 +563,96 @@ class EngineDecisionMakingState(EngineBehaviour):
         logger.debug("{} in Decision making State".format(self.agent.jid))
 
     async def run(self):
-
-
         new_decisions = {}
 
-        #if self.agent.agents_action is None:
-        #    self.agent.agents_action = self.check_options_all_agents()
-
         self.agent.agents_action = self.check_options_all_agents()
-
-        # Mejora -> 1) Probar opciones de manera estatica o 2) Probar opciones dichas por el LLM
-        # Encontrar perfiles sin procesar
-
         logger.warning("DEBUG 1 - Decision: {} ".format(self.agent.agents_action))
 
         if len(self.agent.agents_action) < len(self.agent.profiles.keys()):
-            logger.warning("DEBUG 3.1: {} ".format(set(self.agent.profiles.keys())))
-            logger.warning("DEBUG 3.2: {} ".format(set(self.agent.agents_action.keys())))
             perfiles_sin_procesar = set(self.agent.profiles.keys()) - set(self.agent.agents_action.keys())
-            logger.warning("DEBUG 3: {} ".format(perfiles_sin_procesar))
-
-            #perfiles_sin_procesar = self.agent.profiles.keys()
-            #logger.warning("DEBUG 2: {} ".format(perfiles_sin_procesar))
-
+            logger.warning("DEBUG 3 - Perfiles sin procesar: {} ".format(perfiles_sin_procesar))
         else:
             self.set_next_state(PREPARE_OUTPUT)
             return
 
         for agent_name in perfiles_sin_procesar:
-
-            # if self.agent.agents_action[agent_name] is None:
-
             profile = self.agent.get_agent_info(agent_name)
             past_memory = self.agent.get_agent_memory_info(agent_name)
 
-            # Obtener la mejor opción de transporte para el siguiente día
-            #decision = await self.make_decision(agent_name, profile, past_memory)
-            decision = await self.decision_making(agent_name, profile, past_memory)
+            max_attempts = 3
+            attempt = 0
+            decision = None
 
-            if decision:
-                new_decisions[agent_name] = decision
+            while attempt < max_attempts:
+                attempt += 1
+                logger.warning(f"Attempt #{attempt} to get valid decision for {agent_name}")
 
-                # Extraer la información sugerida
-                suggested_departure_time = decision["next_day_decision"].get("suggested_departure_time")
-                suggested_transport_mode = decision["next_day_decision"].get("suggested_transport_mode")
+                decision = await self.decision_making(agent_name, profile, past_memory)
 
-                # Obtener el agente correspondiente
-                # agent = self.agents.get(agent_name)
-                # if agent and hasattr(agent, "actions") and "actions" in agent.actions:
-                agent_actions = self.agent.actions#["actions"]
-                # Extraer el strategy_path correspondiente al modo sugerido
-
-                if suggested_transport_mode in agent_actions:
-                    action_path = agent_actions[suggested_transport_mode].get("class_path")
-                    strategy_path = agent_actions[suggested_transport_mode].get("strategy_path")
+                if decision and self.is_valid_decision(
+                        decision,
+                        profile,
+                        self.agent.actions
+                ):
+                    break  # Decisión válida
                 else:
-                    action_path = None
-                    strategy_path = None
-                # else:
-                #    action_path = None
-                #    strategy_path = None
+                    decision = None  # Forzamos fallback
 
-                # decisions_result[agent_name] = {
-                self.agent.agents_action[agent_name] = {
-                    "action_name": suggested_transport_mode,
-                    "class_path": action_path,
-                    "strategy_path": strategy_path,
-                    "departure_time": suggested_departure_time
+            if decision is None:
+                # Fallback si no se obtuvo una decisión válida
+                decision = {
+                    "decision_context": {
+                        "reason": "Fallback due to invalid or missing response.",
+                        "satisfaction_score": "0",
+                        "explore_alternative": "no",
+                        "transport_alternative_considered": []
+                    },
+                    "reflections": {
+                        "summary": "Insufficient data to analyze past performance.",
+                        "adjustment": "Consider gathering more historical travel data."
+                    },
+                    "next_day_decision": {
+                        "suggested_departure_time": "06:30 AM",
+                        "suggested_transport_mode": "walk",
+                        "estimated_cost": 0.00,
+                        "estimated_travel_time_min": 100,
+                        "reasoning": "Fallback decision applied due to lack of valid LLM response."
+                    }
                 }
 
-                logger.warning("DEBUG 4 - Decision: {} ".format(self.agent.agents_action))
+            new_decisions[agent_name] = decision
 
-                # Reflection
+            suggested_departure_time = decision["next_day_decision"].get("suggested_departure_time")
+            suggested_transport_mode = decision["next_day_decision"].get("suggested_transport_mode")
 
-                self.update_reflection_memory(agent_name, decision)
+            agent_actions = self.agent.actions
+
+            action_path = agent_actions.get(suggested_transport_mode, {}).get("class_path")
+            strategy_path = agent_actions.get(suggested_transport_mode, {}).get("strategy_path")
+
+            self.agent.agents_action[agent_name] = {
+                "action_name": suggested_transport_mode,
+                "class_path": action_path,
+                "strategy_path": strategy_path,
+                "departure_time": suggested_departure_time
+            }
+
+            logger.warning("DEBUG 4 - Decision: {} ".format(self.agent.agents_action))
+
+            # Reflexión
+            self.update_reflection_memory(agent_name, decision)
 
         logger.warning("DEBUG 4.5 - Decision: {} ".format(self.agent.memory))
 
         memory_path = os.path.join(self.agent.base_dir, "agents/long_memory.json")
-
         with open(memory_path, 'w') as f:
             json.dump(self.agent.long_memory_history, f, indent=4)
 
-        #SOLUCIONAR LA CONCATENACION
-        dest_file = os.path.join(self.agent.base_dir, "agents/decisions/" + str(self.agent.actual_day) + "_day_decisions.json")
-        dest_file = Path(dest_file)
-        # Verificar si ya existe un archivo para ese día en la carpeta days
-        #dest_file = f"LlmDecisionMaking/Agents/decisions/{self.agent.actual_day}_day_decisions.json"
+        dest_file = os.path.join(
+            self.agent.base_dir, "agents/decisions", f"{self.agent.actual_day}_day_decisions.json"
+        )
+        Path(dest_file).parent.mkdir(parents=True, exist_ok=True)
+
         if os.path.exists(dest_file):
             logger.debug(f"El archivo para el día {self.agent.actual_day} ya existe.")
 
@@ -610,9 +661,8 @@ class EngineDecisionMakingState(EngineBehaviour):
 
         logger.info("[DecisionMakingBehaviour] Decision process completed.")
 
-        # Guardar la memoria actualizada
         memory_path = Path(self.agent.base_dir) / "agents/memory.json"
-        memory_path.parent.mkdir(parents=True, exist_ok=True)  # Asegura que la carpeta exista
+        memory_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             with memory_path.open('w') as f:
@@ -621,14 +671,11 @@ class EngineDecisionMakingState(EngineBehaviour):
             logger.error(f"Error al escribir en {memory_path}: {e}")
             return
 
-        #Comprobar el día de simulación
         if self.agent.actual_day == self.agent.environment.get("days"):
             self.agent.stopped = True
 
-        if self.agent.agents_action != None:
-            #self.agent.stopped = True
+        if self.agent.agents_action is not None:
             self.set_next_state(PREPARE_OUTPUT)
-            return
 
 class EnginePrepareOutputState(EngineBehaviour):
     async def on_start(self):
