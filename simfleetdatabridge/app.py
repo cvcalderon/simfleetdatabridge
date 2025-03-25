@@ -4,6 +4,7 @@ import re
 import asyncio
 import subprocess
 import shutil
+import functools
 
 from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour, State, FSMBehaviour
@@ -742,40 +743,48 @@ class EngineRunSimulationState(State):
     async def on_start(self):
         await super().on_start()
         self.agent.status = RUN_SIMULATION
-        self.retries = 0  # Retry counter
+        self.retries = 0
         logger.debug(f"{self.agent.jid} in Run Simulation State")
+
+    def run_simfleet_sync(self, path):
+        try:
+            result = subprocess.run(
+                ["simfleet", "--config", str(path), "-r"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True
+            )
+            return result.returncode, result.stdout.decode(), result.stderr.decode()
+        except subprocess.CalledProcessError as e:
+            return e.returncode, e.stdout.decode() if e.stdout else "", e.stderr.decode() if e.stderr else ""
+
+    async def run_simulation_async(self, path):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, functools.partial(self.run_simfleet_sync, path))
 
     async def run(self):
         while self.retries < 3:
+            logger.info(f"Attempt {self.retries + 1} of 3: Running Simfleet...")
+
             try:
-                logger.info(f"Attempt {self.retries + 1} of 3: Running Simfleet...")
+                return_code, stdout, stderr = await self.run_simulation_async(self.agent.path)
 
-                process = await asyncio.create_subprocess_exec(
-                    "simfleet", "--config", self.agent.path, "-r",
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-
-                # Read output in real-time
-                async for line in process.stdout:
-                    logger.info(f"Simfleet: {line.decode().strip()}")
-
-                return_code = await process.wait()
-
+                logger.info(stdout)
                 if return_code == 0:
-                    logger.info(f"Simfleet simulation finished successfully.")
-                    self.set_next_state(PREPARE_MEMORY)  # Transition to next state
-                    return  # Exit the loop
-
+                    logger.info("Simfleet simulation finished successfully.")
+                    self.set_next_state(PREPARE_MEMORY)
+                    return
                 else:
                     logger.warning(f"Simfleet failed with exit code {return_code}. Retrying...")
+                    logger.error(stderr)
                     self.retries += 1
 
             except Exception as e:
-                logger.error(f"Error running Simfleet: {e}")
+                logger.error(f"Exception during Simfleet execution: {e}")
                 self.retries += 1
 
         logger.error(f"{self.agent.jid} reached maximum retry attempts. Finishing...")
-        self.agent.stopped = True  # Transition to error - finish
+        self.agent.stopped = True
 
 
 class EnginePrepareMemoryState(EngineBehaviour):
