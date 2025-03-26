@@ -42,6 +42,10 @@ class EngineAgent(Agent, LlmBase):
         self.status = None
         self.stopped = False
 
+        # llm Metrics
+
+
+
     def is_finished(self):
         """
         Checks if the engine is finished.
@@ -58,7 +62,7 @@ class EngineAgent(Agent, LlmBase):
     def update_memory_with_simulation(self, sim_metrics, umbral_memoria=3):
         """Actualiza la memoria interna del agente con los datos de la simulación y mantiene short_memory dentro del umbral."""
 
-        logger.warning("DEBUG 1 - Memory: {} ".format(self.memory))
+        #logger.warning("DEBUG 1 - Memory: {} ".format(self.memory))
 
         for category in ("LlmPedestrianAgent", "TaxiCustomerAgent"):
             for agent_data in sim_metrics.get("DetailedMetrics", {}).get(category, []):
@@ -112,7 +116,7 @@ class EngineAgent(Agent, LlmBase):
                 # Agregar la nueva entrada a short_memory
                 self.memory[agent_name]["short_memory"].append(entry)
 
-                logger.warning("DEBUG 2 - Memory: {} ".format(self.memory))
+                #logger.warning("DEBUG 2 - Memory: {} ".format(self.memory))
 
                 # Añadir al historial la short memory
                 self.short_memory_history.setdefault(agent_name, []).append(entry)
@@ -166,7 +170,7 @@ class EngineAgent(Agent, LlmBase):
         mode_data["avg_cost"] = ((mode_data["avg_cost"] * (mode_data["total_days"] - 1)) + entry["cost"]) / mode_data[
             "total_days"]
 
-        logger.warning("DEBUG 3 - Memory: {} ".format(self.memory))
+        #logger.warning("DEBUG 3 - Memory: {} ".format(self.memory))
 
     async def setup(self):
         """
@@ -204,9 +208,9 @@ class EngineBehaviour(State):
 
     async def on_start(self):
         """
-            Logs the start of the vehicle's strategy behavior.
+            Logs the start of the agent behaviour
         """
-        logger.debug("Strategy {} started in vehicle".format(type(self).__name__))
+        logger.debug("Strategy {} started in Engine".format(type(self).__name__))
 
 
     def check_options_all_agents(self):
@@ -251,7 +255,7 @@ class EngineBehaviour(State):
             logger.warning(f"DEBUG 1 - profile_transport_modes: {profile_transport_modes}")
             logger.warning(f"DEBUG 2 - available_transports: {available_transports}")
             logger.warning(f"DEBUG 3 - used_actions: {used_actions}")
-            logger.warning(f"DEBUG 4 - accumulated_used_actions: {self.agent.agent_used_actions[agent_name]}")
+            #logger.warning(f"DEBUG 4 - accumulated_used_actions: {self.agent.agent_used_actions[agent_name]}")
 
             # Obtener departure_time válido
             departure_time = None
@@ -261,7 +265,7 @@ class EngineBehaviour(State):
 
                 if last_departure:
                     departure_time = last_departure
-                    logger.warning(f"DEBUG 2 - departure_time from memory: {departure_time}")
+                    #logger.warning(f"DEBUG 2 - departure_time from memory: {departure_time}")
                 else:
                     logger.warning(f"{agent_name} has invalid (None) departure_time in last memory entry.")
             else:
@@ -385,10 +389,15 @@ class EngineBehaviour(State):
                             "step": 4,
                             "title": "Decision-Making for the Next Day",
                             "description": "Select the best transportation mode based on available data. If a new alternative is being explored, document the reasoning and ensure it aligns with punctuality and reliability requirements. Suggest an optimal departure time."
+                        },
+                        {
+                            "step": 5,
+                            "title": "Output Strict JSON",
+                            "description": "Respond ONLY with a valid JSON that matches the required structure. DO NOT add any text, python code, explanation, or markdown."
                         }
                     ],
                     "output_requirements": {
-                        "format": "**Return ONLY a valid JSON response with no additional commentary.**",
+                        "format": "**STRICT JSON ONLY**.",
                         "structure": {
                             "decision_context": {
                                 "reason": "Explain the reasoning behind the decision, referencing profile constraints, historical performance, and whether a new mode is being tested.",
@@ -428,10 +437,12 @@ class EngineBehaviour(State):
         logger.warning(f"DEBUG: {prompt}")
 
         try:
+
+
             # Llamada al LLM - Abre y cierra conexión
             decision = await oneshot_request_llm(self.agent, config=self.agent.model_config, prompt=prompt)
 
-            logger.warning(f"DEBUG: {decision}")
+            logger.warning(f"DEBUG decisión: {decision}")
 
             # Verificar que la respuesta sea válida y estructurada en JSON
             if decision:
@@ -452,28 +463,30 @@ class EngineBehaviour(State):
         except Exception as e:
             logger.error(f"Error calling LLM: {e}")
 
-        # Opción por defecto en caso de error o respuesta inválida
-        fallback_decision = {
-            "decision_context": {
-                "reason": "Fallback due to invalid or missing response.",
-                "satisfaction_score": "0",
-                "explore_alternative": "no",
-                "transport_alternative_considered": []
-            },
-            "reflections": {
-                "summary": "Insufficient data to analyze past performance.",
-                "adjustment": "Consider gathering more historical travel data."
-            },
-            "next_day_decision": {
-                "suggested_departure_time": "06:30 AM",
-                "suggested_transport_mode": "walk",
-                "estimated_cost": 0.00,
-                "estimated_travel_time_min": 100,
-                "reasoning": "Fallback decision applied due to lack of valid LLM response."
-            }
-        }
+        return None
 
-        return fallback_decision
+        # # Opción por defecto en caso de error o respuesta inválida
+        # fallback_decision = {
+        #     "decision_context": {
+        #         "reason": "Fallback due to invalid or missing response.",
+        #         "satisfaction_score": "0",
+        #         "explore_alternative": "no",
+        #         "transport_alternative_considered": []
+        #     },
+        #     "reflections": {
+        #         "summary": "Insufficient data to analyze past performance.",
+        #         "adjustment": "Consider gathering more historical travel data."
+        #     },
+        #     "next_day_decision": {
+        #         "suggested_departure_time": "06:30 AM",
+        #         "suggested_transport_mode": "walk",
+        #         "estimated_cost": 0.00,
+        #         "estimated_travel_time_min": 100,
+        #         "reasoning": "Fallback decision applied due to lack of valid LLM response."
+        #     }
+        # }
+        #
+        # return fallback_decision
 
 
     def update_reflection_memory(self, agent_name, llm_response):
@@ -484,9 +497,9 @@ class EngineBehaviour(State):
         short_memory = agent_data["short_memory"]
         long_memory = agent_data["long_memory"]
 
-        logger.warning("DEBUG 4.1 - Reflection: {} ".format(agent_data))
-        logger.warning("DEBUG 4.2 - Reflection: {} ".format(short_memory))
-        logger.warning("DEBUG 4.3 - Reflection: {} ".format(long_memory))
+        #logger.warning("DEBUG 4.1 - Reflection: {} ".format(agent_data))
+        #logger.warning("DEBUG 4.2 - Reflection: {} ".format(short_memory))
+        #logger.warning("DEBUG 4.3 - Reflection: {} ".format(long_memory))
 
         if not short_memory:
             raise ValueError("No short_memory data available to update.")
@@ -516,9 +529,34 @@ class EngineBehaviour(State):
         # Añadir al historial la short memory
         #self.agent.long_memory_history[agent_name].append(long_memory["by_mode"][transport_mode]["reflections"])
 
+    def is_valid_structure(self, decision: dict) -> bool:
+        try:
+            required_structure = {
+                "decision_context": ["reason", "satisfaction_score", "explore_alternative",
+                                     "transport_alternative_considered"],
+                "reflections": ["summary", "adjustment"],
+                "next_day_decision": ["suggested_departure_time", "suggested_transport_mode", "estimated_cost",
+                                      "estimated_travel_time_min", "reasoning"]
+            }
+
+            for section, keys in required_structure.items():
+                if section not in decision:
+                    logger.warning(f"Missing section: '{section}' in decision")
+                    return False
+                for key in keys:
+                    if key not in decision[section]:
+                        logger.warning(f"Missing key: '{key}' in section '{section}'")
+                        return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error checking required keys: {e}")
+            return False
+
     def is_valid_decision(self, decision, profile, available_actions):
         try:
-            transport_mode = decision["next_day_decision"]["suggested_transport_mode"]
+            transport_mode = decision["next_day_decision"]["suggested_transport_mode"].lower()
             departure_time = decision["next_day_decision"]["suggested_departure_time"]
 
             # Validar transporte
@@ -567,11 +605,11 @@ class EngineDecisionMakingState(EngineBehaviour):
         new_decisions = {}
 
         self.agent.agents_action = self.check_options_all_agents()
-        logger.warning("DEBUG 1 - Decision: {} ".format(self.agent.agents_action))
+        #logger.warning("DEBUG 1 - Decision: {} ".format(self.agent.agents_action))
 
         if len(self.agent.agents_action) < len(self.agent.profiles.keys()):
             perfiles_sin_procesar = set(self.agent.profiles.keys()) - set(self.agent.agents_action.keys())
-            logger.warning("DEBUG 3 - Perfiles sin procesar: {} ".format(perfiles_sin_procesar))
+            #logger.warning("DEBUG 3 - Perfiles sin procesar: {} ".format(perfiles_sin_procesar))
         else:
             self.set_next_state(PREPARE_OUTPUT)
             return
@@ -590,7 +628,7 @@ class EngineDecisionMakingState(EngineBehaviour):
 
                 decision = await self.decision_making(agent_name, profile, past_memory)
 
-                if decision and self.is_valid_decision(
+                if decision and self.is_valid_structure(decision) and self.is_valid_decision(
                         decision,
                         profile,
                         self.agent.actions
@@ -620,6 +658,7 @@ class EngineDecisionMakingState(EngineBehaviour):
                         "reasoning": "Fallback decision applied due to lack of valid LLM response."
                     }
                 }
+                logger.warning(f"DEBUG Fallback: {decision}")
 
             new_decisions[agent_name] = decision
 
@@ -638,12 +677,12 @@ class EngineDecisionMakingState(EngineBehaviour):
                 "departure_time": suggested_departure_time
             }
 
-            logger.warning("DEBUG 4 - Decision: {} ".format(self.agent.agents_action))
+            #logger.warning("DEBUG 4 - Decision: {} ".format(self.agent.agents_action))
 
             # Reflexión
             self.update_reflection_memory(agent_name, decision)
 
-        logger.warning("DEBUG 4.5 - Decision: {} ".format(self.agent.memory))
+        #logger.warning("DEBUG 4.5 - Decision: {} ".format(self.agent.memory))
 
         memory_path = os.path.join(self.agent.base_dir, "agents/long_memory.json")
         with open(memory_path, 'w') as f:
@@ -693,7 +732,7 @@ class EnginePrepareOutputState(EngineBehaviour):
         day, name, sim_config = self.load_latest_simfleet_config(simfleet_path)
         decisions = self.agent.agents_action
 
-        logger.warning("DEBUG 2: {} in Prepare output State".format(decisions))
+        #logger.warning("DEBUG 2: {} in Prepare output State".format(decisions))
 
         for customer in sim_config.get("customers", []):
             customer_name = customer.get("name")
@@ -706,7 +745,7 @@ class EnginePrepareOutputState(EngineBehaviour):
                 else:
                     logger.debug(f"Advertencia: No se encontró 'departure_time' para {customer_name}.")
                 # Actualizar class y strategy
-                logger.warning("DEBUG 2.2: {} ".format(decision.get("class_path", customer.get("class"))))
+                #logger.warning("DEBUG 2.2: {} ".format(decision.get("class_path", customer.get("class"))))
                 customer["class"] = decision.get("class_path", customer.get("class"))
                 customer["strategy"] = decision.get("strategy_path", customer.get("strategy"))
                 customer["delay"] = self.agent.scaled_time_to_real_seconds(decision.get("departure_time", customer.get("delay")))
@@ -791,7 +830,7 @@ class EnginePrepareMemoryState(EngineBehaviour):
     async def on_start(self):
         await super().on_start()
         self.agent.status = PREPARE_MEMORY
-        logger.debug("{} in Prepare output State".format(self.agent.jid))
+        logger.debug("{} in Prepare memory State".format(self.agent.jid))
 
     async def run(self):
         """Prepara la memoria del agente y actualiza los datos de la simulación."""

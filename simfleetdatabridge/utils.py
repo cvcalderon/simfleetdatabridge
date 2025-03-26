@@ -61,7 +61,7 @@ class RequestApiLLM(OneShotBehaviour):
 
             # Obtener la respuesta cruda
             response_text = response.text.strip()
-            logger.info(f"Respuesta cruda del LLM: {response_text}")
+            #logger.info(f"Respuesta cruda del LLM: {response_text}")
 
             # Extraer solo las respuestas de "response": "..."
             json_fragments = []
@@ -75,6 +75,8 @@ class RequestApiLLM(OneShotBehaviour):
 
             # Unir todos los fragmentos en un solo string
             combined_response = "".join(json_fragments).strip()
+
+            logger.debug(f"Texto combinado:\n{combined_response}")
 
             # Intentar extraer el JSON final con regex
             match = re.search(r'\{.*\}', combined_response, re.DOTALL)
