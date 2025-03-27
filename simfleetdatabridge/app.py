@@ -102,8 +102,7 @@ class EngineAgent(Agent, LlmBase):
                     "cost": cost,
                     "decision_context": {
                         "reason": reason,
-                        "alternative_considered": [],
-                        "satisfaction_score": None
+                        "alternative_considered": []
                     },
                 }
 
@@ -283,9 +282,9 @@ class EngineBehaviour(State):
                         logger.info(f"Estimated fallback departure_time for {agent_name}: {departure_time}")
                     except ValueError:
                         logger.error(f"Incorrect time format for {agent_name}: {arrival_time_limit}")
-                        departure_time = "06:30 AM"
+                        departure_time = arrival_time_limit
                 else:
-                    departure_time = "06:30 AM"
+                    departure_time = arrival_time_limit
 
             # Filtrar acciones válidas (solo transportes aún no usados)
             valid_actions = [
@@ -378,22 +377,22 @@ class EngineBehaviour(State):
                         {
                             "step": 1,
                             "title": "Evaluation of Recent Travel (Short Memory)",
-                            "description": "Analyze the most recent day's travel data, including departure and arrival times, travel time, waiting time, cost, and satisfaction score. If the trip resulted in late arrival or low satisfaction, prioritize alternative options that better meet punctuality and comfort requirements."
+                            "description": "Analyze the travel data from the past few days. Evaluate whether the user arrived late compared to the 'arrival_time_limit' and the specified flexibility type ('type'). If the type is 'strict', any arrival after the time limit is considered late. If it is 'flexible', a reasonable margin is allowed. If there were late arrivals, faster or more reliable transportation options should be prioritized. Also consider the 'distance_km' of the trip: longer distances should favor faster or more efficient modes. This evaluation will help decide whether to change the mode of transport or adjust the departure time for the next day."
                         },
                         {
                             "step": 2,
                             "title": "Assessment of Aggregated Data (Long Memory)",
-                            "description": "Review the historical performance of each transportation mode based on average travel time, waiting time, cost, and user satisfaction. Consider any reflections or adjustments noted in the long-term memory."
+                            "description": "Analyze the historical performance of each transportation mode recorded in 'long_memory'. Evaluate the average travel time, waiting time, and cost per mode. Consider whether a mode has been used recently or not. If a mode shows poor performance or has been previously discarded based on reflections, it may be temporarily excluded. If a mode has been repeatedly used, assess whether it is advisable to maintain it or explore alternatives. Review recorded reflections and adjustments to identify relevant learnings. This analysis should help validate or question the continued use of the current mode, as well as detect opportunities for improvement or diversification."
                         },
                         {
                             "step": 3,
                             "title": "Exploration of Alternative Options",
-                            "description": "If a transportation mode has insufficient historical data or has not been used recently, prioritize testing it to gather experience. If the current optimal choice has been consistently used, explore an alternative mode at a reasonable frequency."
+                            "description": "Based on the evaluation of recent and 'long_memory', identify whether there is a need to explore an alternative mode of transportation. Prioritize modes that have not been used recently or that have limited historical data, as long as their use does not contradict the user’s key preferences. If the current mode has been used repeatedly, consider alternating to avoid overdependence. Do not suggest modes with a clearly negative history or that involve risks in contexts with a strict purpose. The decision to explore should align with the user’s profile and risk sensitivity. This step should determine whether an alternative will be explored in the next trip and which one it would be."
                         },
                         {
                             "step": 4,
-                            "title": "Decision-Making for the Next Day",
-                            "description": "Select the best transportation mode based on available data. If a new alternative is being explored, document the reasoning and ensure it aligns with punctuality and reliability requirements. Suggest an optimal departure time."
+                            "title": "Final Decision for the Next Day",
+                            "description": "Based on the previous analysis, select the optimal mode of transportation for the next day. Justify the choice by considering the user’s mobility preferences, the type and purpose of the event, the punctuality observed in recent trips, and the historical performance of the proposed mode. Also set a suggested departure time, taking into account the average travel time, distance, and the available flexibility margin. If the event type is 'strict', the departure time must ensure on-time arrival even under suboptimal conditions. This step defines the final choice and the departure strategy."
                         },
                         {
                             "step": 5,
@@ -405,22 +404,18 @@ class EngineBehaviour(State):
                         "format": "**STRICT JSON ONLY**.",
                         "structure": {
                             "decision_context": {
-                                "reason": "Explain the reasoning behind the decision, referencing profile constraints, historical performance, and whether a new mode is being tested.",
-                                "satisfaction_score": "0.XX",
-                                "explore_alternative": "yes or no",
+                                "reason": "Explain the reasoning behind the decision of the last day recorded in 'short_memory', explanation of why this transportation mode and departure time were chosen, considering user mobility preference.",
                                 "transport_alternative_considered": [
-                                    "list of alternative transport modes if applicable"]
+                                    "list of alternative transport modes if applicable"
+                                ]
                             },
                             "reflections": {
-                                "summary": "Provide a summary of key reflections from historical data, including insights from previous travel experiences.",
-                                "adjustment": "Describe any suggested adjustments for future trips, particularly regarding time management and mode selection."
+                                "summary": "Briefly describe how the selected mode of transportation performed in relation to the user's preferences. Mention whether the performance was consistent with 'long_memory' or if there was any notable difference. It can also include whether a hypothesis was validated or not when testing a new mode.",
+                                "adjustment": "Suggest a change in future behavior—whether to maintain the mode, avoid it, adjust it (e.g., depart earlier), or combine it with another. The goal is to optimize future choices based on what was learned."
                             },
                             "next_day_decision": {
                                 "suggested_departure_time": "HH:MM AM/PM",
-                                "suggested_transport_mode": "Chosen mode",
-                                "estimated_cost": "0.XX",
-                                "estimated_travel_time_min": "XX",
-                                "reasoning": "Provide a detailed explanation of why this transportation mode and departure time were chosen, considering user mobility preference."
+                                "suggested_transport_mode": "Chosen mode of 'transport_options' list"
                             }
                         }
                     }
@@ -501,12 +496,24 @@ class EngineBehaviour(State):
                 decision = None  # Forzamos fallback
 
         if decision is None:
-            # Fallback si no se obtuvo una decisión válida
+            # Recuperamos la short_memory como en check_options_all_agents
+            memory_agent = self.agent.get_agent_memory_info(agent_name)
+            short_memory = memory_agent.get("short_memory", []) if memory_agent else []
+
+            # Valores por defecto
+            last_mode = "walk"
+            last_time = "06:30 AM"
+            day = self.agent.actual_day
+
+            if short_memory:
+                last_entry = short_memory[-1]
+                last_mode = last_entry.get("transport_mode", last_mode)
+                last_time = last_entry.get("departure_time", last_time)
+                day = str(last_entry.get("day", day) - 1)
+
             decision = {
                 "decision_context": {
-                    "reason": "LLM response was invalid, empty, or failed parsing. Fallback logic triggered (walk).",
-                    "satisfaction_score": "0",
-                    "explore_alternative": "no",
+                    "reason": f"LLM response was invalid, empty, or failed parsing. Fallback logic used previous mode: {last_mode} of day {day}.",
                     "transport_alternative_considered": []
                 },
                 "reflections": {
@@ -514,21 +521,17 @@ class EngineBehaviour(State):
                     "adjustment": "-"
                 },
                 "next_day_decision": {
-                    "suggested_departure_time": "06:30 AM",
-                    "suggested_transport_mode": "walk",
-                    "estimated_cost": 0.00,
-                    "estimated_travel_time_min": 100,
-                    "reasoning": "Fallback decision applied due to lack of valid LLM response."
+                    "suggested_departure_time": last_time,
+                    "suggested_transport_mode": last_mode
                 }
             }
-            logger.warning(f"DEBUG Fallback: {decision}")
+
+            logger.warning(f"DEBUG Fallback based on short_memory: {decision}")
 
             #Metrics
             metrics["transport_modes_selected"].append("fallback")
 
         return decision
-
-
 
 
     def update_reflection_memory(self, agent_name, llm_response):
@@ -553,7 +556,6 @@ class EngineBehaviour(State):
         # Update decision_context in the latest short_memory entry
         last_entry["decision_context"].update({
             "reason": llm_response["decision_context"]["reason"],
-            "satisfaction_score": llm_response["decision_context"]["satisfaction_score"],
             "alternative_considered": llm_response["decision_context"]["transport_alternative_considered"]
         })
 
@@ -561,10 +563,22 @@ class EngineBehaviour(State):
         if transport_mode not in long_memory["by_mode"]:
             raise ValueError(f"Transport mode {transport_mode} not found in long_memory.")
 
-        long_memory["by_mode"][transport_mode]["reflections"] = [{
-            "summary": llm_response["reflections"]["summary"],
-            "adjustment": llm_response["reflections"]["adjustment"]
-        }]
+#        long_memory["by_mode"][transport_mode]["reflections"] = [{
+#            "summary": llm_response["reflections"]["summary"],
+#            "adjustment": llm_response["reflections"]["adjustment"]
+#        }]
+
+        summary = llm_response["reflections"].get("summary", "").strip()
+        adjustment = llm_response["reflections"].get("adjustment", "").strip()
+
+        # Solo actualiza si ambos tienen contenido significativo
+        if summary and summary != "-" and adjustment and adjustment != "-":
+            long_memory["by_mode"][transport_mode]["reflections"] = [{
+                "summary": summary,
+                "adjustment": adjustment
+            }]
+        else:
+            logger.warning(f"Reflections not updated for {transport_mode} due to missing or placeholder values.")
 
         #SOLUCIONA ESTE PROBLEMA PARA GUARDAR LA MEMORIA A LARGO PLAZO
 
@@ -574,11 +588,10 @@ class EngineBehaviour(State):
     def is_valid_structure(self, decision: dict) -> bool:
         try:
             required_structure = {
-                "decision_context": ["reason", "satisfaction_score", "explore_alternative",
+                "decision_context": ["reason",
                                      "transport_alternative_considered"],
                 "reflections": ["summary", "adjustment"],
-                "next_day_decision": ["suggested_departure_time", "suggested_transport_mode", "estimated_cost",
-                                      "estimated_travel_time_min", "reasoning"]
+                "next_day_decision": ["suggested_departure_time", "suggested_transport_mode"]
             }
 
             for section, keys in required_structure.items():
