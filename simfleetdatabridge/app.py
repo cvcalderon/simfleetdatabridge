@@ -5,6 +5,7 @@ import asyncio
 import subprocess
 import shutil
 import functools
+import time
 
 from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour, State, FSMBehaviour
@@ -42,8 +43,8 @@ class EngineAgent(Agent, LlmBase):
         self.status = None
         self.stopped = False
 
-        # llm Metrics
-
+        #Metrics
+        self.evaluation_metrics = {}
 
 
     def is_finished(self):
@@ -297,6 +298,10 @@ class EngineBehaviour(State):
                 for action_name in available_transports - used_actions  # Diferencia de conjuntos para excluir usados
                 if action_name in available_actions
             ]
+            # Metrics
+            self._init_agent_metrics(agent_name)
+            metrics = self.agent.evaluation_metrics[agent_name]
+            metrics["transport_modes_selected"].append(valid_actions[0]["action_name"])
 
             # Dejar la elección final al LLM
             if valid_actions:
@@ -425,68 +430,105 @@ class EngineBehaviour(State):
 
         return json.dumps(prompt, indent=4)
 
+    #Metrics
+    def _init_agent_metrics(self, agent_name):
+        if agent_name not in self.agent.evaluation_metrics:
+            self.agent.evaluation_metrics[agent_name] = {
+                "valid_json_count": 0,
+                "total_responses": 0,
+                "reasoned_correctly_count": 0,
+                "response_times_sec": [],
+                "transport_modes_selected": []
+            }
 
     async def decision_making(self, agent_name, profile, past_memory):
         """
         Calls the LLM to determine the best transport mode for the next day.
         """
+        max_attempts = 3
+        attempt = 0
+        decision = None
 
         # Generar el nuevo prompt con la estructura actualizada
         prompt = self.generate_travel_prompt(agent_name, profile, past_memory)
 
-        logger.warning(f"DEBUG: {prompt}")
+        #Metrics
+        self._init_agent_metrics(agent_name)
 
-        try:
+        logger.warning(f"DEBUG prompt: {prompt}")
 
+        while attempt < max_attempts:
+            attempt += 1
+            logger.warning(f"Attempt #{attempt} to get valid decision for {agent_name}")
+
+            #Metrics
+            start_time = time.time()
 
             # Llamada al LLM - Abre y cierra conexión
             decision = await oneshot_request_llm(self.agent, config=self.agent.model_config, prompt=prompt)
 
+            #Metrics
+            end_time = time.time()
+            response_time = end_time - start_time
+
+            metrics = self.agent.evaluation_metrics[agent_name]
+            metrics["total_responses"] += 1
+            metrics["response_times_sec"].append(response_time)
+
+            is_structured = self.is_valid_structure(decision)
+            if is_structured:
+                metrics["valid_json_count"] += 1
+
+                is_reasoned = self.is_valid_decision(decision, profile, self.agent.actions)
+                if is_reasoned:
+                    metrics["reasoned_correctly_count"] += 1
+                    # Guardar el modo de transporte elegido si es válido
+                    transport_mode = decision["next_day_decision"]["suggested_transport_mode"].lower()
+                    metrics["transport_modes_selected"].append(transport_mode)
+                    logger.warning(f"DEBUG Transport mode: {transport_mode}")
+
+
             logger.warning(f"DEBUG decisión: {decision}")
 
-            # Verificar que la respuesta sea válida y estructurada en JSON
-            if decision:
-                try:
-                    #decision = json.loads(response)  # Parseamos la respuesta a JSON
-                    if "next_day_decision" in decision and "suggested_transport_mode" in decision["next_day_decision"]:
-                        logger.info(
-                            f"[DecisionMakingBehaviour] {agent_name} chooses {decision['next_day_decision']['suggested_transport_mode']}")
-                        return decision
-                    else:
-                        logger.warning(
-                            f"[DecisionMakingBehaviour] Invalid decision structure for {agent_name}. Using fallback option.")
-                except json.JSONDecodeError:
-                    logger.error(f"[DecisionMakingBehaviour] LLM response is not valid JSON. Using fallback option.")
+            if decision and self.is_valid_structure(decision) and self.is_valid_decision(
+                    decision,
+                    profile,
+                    self.agent.actions
+            ):
+
+                break  # Decisión válida
             else:
-                logger.warning(f"[DecisionMakingBehaviour] No response from LLM. Using fallback option.")
+                decision = None  # Forzamos fallback
 
-        except Exception as e:
-            logger.error(f"Error calling LLM: {e}")
+        if decision is None:
+            # Fallback si no se obtuvo una decisión válida
+            decision = {
+                "decision_context": {
+                    "reason": "LLM response was invalid, empty, or failed parsing. Fallback logic triggered (walk).",
+                    "satisfaction_score": "0",
+                    "explore_alternative": "no",
+                    "transport_alternative_considered": []
+                },
+                "reflections": {
+                    "summary": "-",
+                    "adjustment": "-"
+                },
+                "next_day_decision": {
+                    "suggested_departure_time": "06:30 AM",
+                    "suggested_transport_mode": "walk",
+                    "estimated_cost": 0.00,
+                    "estimated_travel_time_min": 100,
+                    "reasoning": "Fallback decision applied due to lack of valid LLM response."
+                }
+            }
+            logger.warning(f"DEBUG Fallback: {decision}")
 
-        return None
+            #Metrics
+            metrics["transport_modes_selected"].append("fallback")
 
-        # # Opción por defecto en caso de error o respuesta inválida
-        # fallback_decision = {
-        #     "decision_context": {
-        #         "reason": "Fallback due to invalid or missing response.",
-        #         "satisfaction_score": "0",
-        #         "explore_alternative": "no",
-        #         "transport_alternative_considered": []
-        #     },
-        #     "reflections": {
-        #         "summary": "Insufficient data to analyze past performance.",
-        #         "adjustment": "Consider gathering more historical travel data."
-        #     },
-        #     "next_day_decision": {
-        #         "suggested_departure_time": "06:30 AM",
-        #         "suggested_transport_mode": "walk",
-        #         "estimated_cost": 0.00,
-        #         "estimated_travel_time_min": 100,
-        #         "reasoning": "Fallback decision applied due to lack of valid LLM response."
-        #     }
-        # }
-        #
-        # return fallback_decision
+        return decision
+
+
 
 
     def update_reflection_memory(self, agent_name, llm_response):
@@ -618,52 +660,12 @@ class EngineDecisionMakingState(EngineBehaviour):
             profile = self.agent.get_agent_info(agent_name)
             past_memory = self.agent.get_agent_memory_info(agent_name)
 
-            max_attempts = 3
-            attempt = 0
-            decision = None
-
-            while attempt < max_attempts:
-                attempt += 1
-                logger.warning(f"Attempt #{attempt} to get valid decision for {agent_name}")
-
-                decision = await self.decision_making(agent_name, profile, past_memory)
-
-                if decision and self.is_valid_structure(decision) and self.is_valid_decision(
-                        decision,
-                        profile,
-                        self.agent.actions
-                ):
-                    break  # Decisión válida
-                else:
-                    decision = None  # Forzamos fallback
-
-            if decision is None:
-                # Fallback si no se obtuvo una decisión válida
-                decision = {
-                    "decision_context": {
-                        "reason": "Fallback due to invalid or missing response.",
-                        "satisfaction_score": "0",
-                        "explore_alternative": "no",
-                        "transport_alternative_considered": []
-                    },
-                    "reflections": {
-                        "summary": "Insufficient data to analyze past performance.",
-                        "adjustment": "Consider gathering more historical travel data."
-                    },
-                    "next_day_decision": {
-                        "suggested_departure_time": "06:30 AM",
-                        "suggested_transport_mode": "walk",
-                        "estimated_cost": 0.00,
-                        "estimated_travel_time_min": 100,
-                        "reasoning": "Fallback decision applied due to lack of valid LLM response."
-                    }
-                }
-                logger.warning(f"DEBUG Fallback: {decision}")
+            decision = await self.decision_making(agent_name, profile, past_memory)
 
             new_decisions[agent_name] = decision
 
             suggested_departure_time = decision["next_day_decision"].get("suggested_departure_time")
-            suggested_transport_mode = decision["next_day_decision"].get("suggested_transport_mode")
+            suggested_transport_mode = decision["next_day_decision"].get("suggested_transport_mode").lower()
 
             agent_actions = self.agent.actions
 
@@ -713,6 +715,10 @@ class EngineDecisionMakingState(EngineBehaviour):
 
         if self.agent.actual_day == self.agent.environment.get("days"):
             self.agent.stopped = True
+
+            #Metrics
+            with open("llm_evaluation_metrics.json", "w") as f:
+                json.dump(self.agent.evaluation_metrics, f, indent=4)
 
         if self.agent.agents_action is not None:
             self.set_next_state(PREPARE_OUTPUT)
