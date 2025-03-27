@@ -372,27 +372,27 @@ class EngineBehaviour(State):
                 "user_profile": agent_profile,
                 "travel_memory": agent_memory,
                 "instructions": {
-                    "task": "Your role is to analyze the user's travel history and select the optimal transportation mode for the next day while also exploring alternative options when necessary. Your decision should balance punctuality, comfort, cost, eco-friendly and reliability based on past performance and user preferences.",
+                    "task": "Your role is to analyze the user's travel history and determine the optimal transportation mode for the upcoming day, while also exploring viable alternatives when appropriate. **Only modes included in 'transport_options' should be considered**. Your decision should be informed by past experiences ('memory'), aligned with the user's mobility preferences, and responsive to the current environmental context.",
                     "evaluation_steps": [
                         {
                             "step": 1,
                             "title": "Evaluation of Recent Travel (Short Memory)",
-                            "description": "Analyze the travel data from the past few days. Evaluate whether the user arrived late compared to the 'arrival_time_limit' and the specified flexibility type ('type'). If the type is 'strict', any arrival after the time limit is considered late. If it is 'flexible', a reasonable margin is allowed. If there were late arrivals, faster or more reliable transportation options should be prioritized. Also consider the 'distance_km' of the trip: longer distances should favor faster or more efficient modes. This evaluation will help decide whether to change the mode of transport or adjust the departure time for the next day."
+                            "description": "Analyze the most recent day's travel data, including departure and arrival times, travel time, waiting time and cost. If the type is 'strict', any arrival after the limit is considered late. If the type is 'flexible', allow a reasonable margin."
                         },
                         {
                             "step": 2,
                             "title": "Assessment of Aggregated Data (Long Memory)",
-                            "description": "Analyze the historical performance of each transportation mode recorded in 'long_memory'. Evaluate the average travel time, waiting time, and cost per mode. Consider whether a mode has been used recently or not. If a mode shows poor performance or has been previously discarded based on reflections, it may be temporarily excluded. If a mode has been repeatedly used, assess whether it is advisable to maintain it or explore alternatives. Review recorded reflections and adjustments to identify relevant learnings. This analysis should help validate or question the continued use of the current mode, as well as detect opportunities for improvement or diversification."
+                            "description": "Review the historical performance of each transportation mode based on average travel time, waiting time, cost, and reflections. Identify which modes have shown consistent performance and which have been problematic."
                         },
                         {
                             "step": 3,
                             "title": "Exploration of Alternative Options",
-                            "description": "Based on the evaluation of recent and 'long_memory', identify whether there is a need to explore an alternative mode of transportation. Prioritize modes that have not been used recently or that have limited historical data, as long as their use does not contradict the user’s key preferences. If the current mode has been used repeatedly, consider alternating to avoid overdependence. Do not suggest modes with a clearly negative history or that involve risks in contexts with a strict purpose. The decision to explore should align with the user’s profile and risk sensitivity. This step should determine whether an alternative will be explored in the next trip and which one it would be."
+                            "description": "If a transportation mode has insufficient historical data or has not been used recently, prioritize testing it to gather experience. If the current optimal choice has been consistently used, explore an alternative mode at a reasonable frequency."
                         },
                         {
                             "step": 4,
-                            "title": "Final Decision for the Next Day",
-                            "description": "Based on the previous analysis, select the optimal mode of transportation for the next day. Justify the choice by considering the user’s mobility preferences, the type and purpose of the event, the punctuality observed in recent trips, and the historical performance of the proposed mode. Also set a suggested departure time, taking into account the average travel time, distance, and the available flexibility margin. If the event type is 'strict', the departure time must ensure on-time arrival even under suboptimal conditions. This step defines the final choice and the departure strategy."
+                            "title": "Decision-Making for the Next Day",
+                            "description": "Select the best transportation mode based on available data. If a new alternative is being explored. Any suggested alternative must be compatible with the user's profile, the type of event, and the acceptable level of risk (e.g., avoid unnecessary risks if the event is 'strict')."
                         },
                         {
                             "step": 5,
@@ -404,18 +404,17 @@ class EngineBehaviour(State):
                         "format": "**STRICT JSON ONLY**.",
                         "structure": {
                             "decision_context": {
-                                "reason": "Explain the reasoning behind the decision of the last day recorded in 'short_memory', explanation of why this transportation mode and departure time were chosen, considering user mobility preference.",
+                                "reason": "Explain the reasoning behind the decision, referencing profile constraints, historical performance, and whether a new mode is being tested.",
                                 "transport_alternative_considered": [
-                                    "list of alternative transport modes if applicable"
-                                ]
+                                    "list of alternative transport modes if applicable"]
                             },
                             "reflections": {
-                                "summary": "Briefly describe how the selected mode of transportation performed in relation to the user's preferences. Mention whether the performance was consistent with 'long_memory' or if there was any notable difference. It can also include whether a hypothesis was validated or not when testing a new mode.",
-                                "adjustment": "Suggest a change in future behavior—whether to maintain the mode, avoid it, adjust it (e.g., depart earlier), or combine it with another. The goal is to optimize future choices based on what was learned."
+                                "summary": "Provide a summary of key reflections from historical data (long_memory), including insights from previous travel experiences.",
+                                "adjustment": "Describe any suggested adjustments for future trips, particularly regarding time management and mode selection."
                             },
                             "next_day_decision": {
                                 "suggested_departure_time": "HH:MM AM/PM",
-                                "suggested_transport_mode": "Chosen mode of 'transport_options' list"
+                                "suggested_transport_mode": "**Only modes included in 'transport_options'**"
                             }
                         }
                     }
