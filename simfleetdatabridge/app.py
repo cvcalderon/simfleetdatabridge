@@ -82,17 +82,27 @@ class EngineAgent(Agent, LlmBase):
 
                 if trip_completed:
                     reason = "-"
-                else:
-                    reason = (
-                        f"Trip not completed: agent waited {round(waiting_time, 2)} minutes using mode '{transport_mode}', "
-                        "but was not picked up or did not reach destination."
+                    departure_time = self.real_seconds_to_scaled_time(
+                        trip_completion_timestamp - trip_time - waiting_time
                     )
+                else:
+                    # Buscar última acción asignada
+                    last_action = self.agents_action.get(agent_name)
+                    inferred_transport_mode = last_action["action_name"] if last_action else "unknown"
+                    inferred_departure_time = last_action["departure_time"] if last_action else None
+
+                    reason = (
+                        f"Trip not completed: agent waited {round(waiting_time, 2)} minutes using mode '{inferred_transport_mode}', "
+                        "but was not picked up or did not reach destination. Inferred data was used."
+                    )
+
+                    # Usar datos inferidos
+                    transport_mode = inferred_transport_mode
+                    departure_time = inferred_departure_time
 
                 entry = {
                     "day": self.actual_day,
-                    "departure_time": self.real_seconds_to_scaled_time(
-                        trip_completion_timestamp - trip_time - waiting_time
-                    ) if trip_completed else None,
+                    "departure_time": departure_time if trip_completed else inferred_departure_time,
                     "arrival_time": self.real_seconds_to_scaled_time(
                         trip_completion_timestamp) if trip_completed else None,
                     "travel_time_min": round(trip_time, 2),
@@ -377,7 +387,7 @@ class EngineBehaviour(State):
                         {
                             "step": 1,
                             "title": "Evaluation of Recent Travel (Short Memory)",
-                            "description": "Analyze the most recent day's travel data, including departure and arrival times, travel time, waiting time and cost. If the type is 'strict', any arrival after the limit is considered late. If the type is 'flexible', allow a reasonable margin."
+                            "description": "Analyze the most recent day's travel data, including departure and arrival times, travel time, waiting time, distance and cost. If the type is 'strict', any arrival after the limit is considered late. If the type is 'flexible', allow a reasonable margin. Also analyze whether the travel time is consistent and corresponds to the distance ('distance_km')."
                         },
                         {
                             "step": 2,
@@ -414,7 +424,7 @@ class EngineBehaviour(State):
                             },
                             "next_day_decision": {
                                 "suggested_departure_time": "HH:MM AM/PM",
-                                "suggested_transport_mode": "**Only modes included in 'transport_options'**"
+                                "suggested_transport_mode": "Only modes included in 'transport_options'"
                             }
                         }
                     }
