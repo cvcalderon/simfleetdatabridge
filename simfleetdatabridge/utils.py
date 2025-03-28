@@ -1,22 +1,16 @@
+from pydantic.v1.validators import validate_json
 from spade.behaviour import OneShotBehaviour
 from loguru import logger
 import json
-
-import requests
 import re
-import os
+import requests
+import openai
 
-
-# ------------------ Llamadas LLM --------------------
 
 async def oneshot_request_llm(agent, config=None, prompt=None):
-
     instance = RequestApiLLM(config, prompt)
     agent.add_behaviour(instance)
-
-    # Wait for the behaviour to complete
     await instance.join()
-
     return instance.response
 
 
@@ -28,42 +22,70 @@ class RequestApiLLM(OneShotBehaviour):
         self.prompt = prompt
         self.response = None
 
-    async def call_llm(self, config, prompt):
-        """
-        Calls the remote Ollama API to get a decision.
-        """
-        # Obtener configuración del LLM
+    async def run(self):
+        if self.config is None:
+            logger.warning("El agente no tiene configuración LLM.")
+            return
+
+        use_sdk = self.config.get("use_openai_sdk", True)
+
+        if use_sdk:
+            await self.call_llm_with_sdk(self.config, self.prompt)
+        else:
+            await self.call_llm_with_requests(self.config, self.prompt)
+
+        logger.info("El agente recibió la respuesta.")
+
+    # ------------------ MODO SDK OpenAI ------------------
+
+    async def call_llm_with_sdk(self, config, prompt):
+        model = config.get("model")
+        base_url = config.get("api_url")
+        api_key = config.get("api_key")
+        temperature = config.get("temperature", 0.7)
+
+        try:
+            client = openai.OpenAI(
+                base_url=base_url,
+                api_key=api_key or None  # Permite modelos sin key
+            )
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=500
+            )
+
+            raw_text = response.choices[0].message.content.strip()
+            logger.debug(f"Texto combinado:\n{raw_text}")
+
+            self.response = self.extract_json(raw_text)
+
+        except Exception as e:
+            logger.exception(f"Error llamando al LLM con SDK: {e}")
+            self.response = None
+
+    # ------------------ MODO requests.post() ------------------
+
+    async def call_llm_with_requests(self, config, prompt):
         model = config.get("model")
         api_url = config.get("api_url")
-        temperature = config.get("temperature")
+        temperature = config.get("temperature", 0.7)
 
-        self.response = self.query_llm(prompt, model=model, api_url=api_url, temperature=temperature)
-
-
-    def query_llm(self, prompt, model, api_url, temperature=0.7):
-        """
-        Sends a prompt to the LLM API and retrieves a structured JSON response.
-
-        Returns:
-            dict: The generated response from the model in JSON format.
-        """
         payload = {
             "model": model,
             "prompt": prompt,
-            "options": {
-                "temperature": temperature
-            }
+            "options": {"temperature": temperature}
         }
 
         try:
             response = requests.post(api_url, json=payload)
             response.raise_for_status()
-
-            # Obtener la respuesta cruda
             response_text = response.text.strip()
-            #logger.info(f"Respuesta cruda del LLM: {response_text}")
+            #logger.debug(f"Respuesta cruda del LLM:\n{response_text}")
 
-            # Extraer solo las respuestas de "response": "..."
+            # Extraer fragmentos de tipo "response"
             json_fragments = []
             for line in response_text.splitlines():
                 try:
@@ -71,37 +93,27 @@ class RequestApiLLM(OneShotBehaviour):
                     if "response" in parsed_line:
                         json_fragments.append(parsed_line["response"])
                 except json.JSONDecodeError:
-                    logger.warning(f"Ignorando línea no válida: {line}")
+                    logger.warning(f"Línea ignorada no válida: {line}")
 
-            # Unir todos los fragmentos en un solo string
             combined_response = "".join(json_fragments).strip()
-
             logger.debug(f"Texto combinado:\n{combined_response}")
 
-            # Intentar extraer el JSON final con regex
-            match = re.search(r'\{.*\}', combined_response, re.DOTALL)
-            if match:
-                json_str = match.group(0)
-                try:
-                    parsed_json = json.loads(json_str)
-                    return parsed_json
-                except json.JSONDecodeError as e:
-                    logger.error(f"Error al decodificar JSON final: {e}")
-                    return None
-            else:
-                logger.error("No se encontró un JSON válido en la respuesta combinada.")
-                return None
+            self.response = self.extract_json(combined_response)
 
-        except requests.exceptions.RequestException as e:
-            logger.exception(f"Error conectando con el LLM: {e}")
-            return None
+        except Exception as e:
+            logger.exception(f"Error llamando al LLM (requests): {e}")
+            self.response = None
 
-    async def run(self):
-        """
-            Executes the behavior to request and receive the list of agent positions.
-        """
-        if self.config is None:
-            logger.warning("Agent haven't LLM configured.")
+    # ------------------ Extracción JSON común ------------------
+
+    def extract_json(self, text):
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError as e:
+                logger.error(f"Error al decodificar JSON: {e}")
         else:
-            await self.call_llm(config=self.config, prompt=self.prompt)
-            logger.info("Agent receive prompt.")
+            logger.error("No se encontró JSON válido en la respuesta.")
+        return None
+
