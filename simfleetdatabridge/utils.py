@@ -1,4 +1,3 @@
-from pydantic.v1.validators import validate_json
 from spade.behaviour import OneShotBehaviour
 from loguru import logger
 import json
@@ -54,7 +53,7 @@ class RequestApiLLM(OneShotBehaviour):
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
-                max_tokens=500
+                max_tokens=1000
             )
 
             raw_text = response.choices[0].message.content.strip()
@@ -109,11 +108,30 @@ class RequestApiLLM(OneShotBehaviour):
     def extract_json(self, text):
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
+            json_candidate = match.group(0)
+            fixed_json = self.fix_unbalanced_braces(json_candidate)
             try:
-                return json.loads(match.group(0))
+                return json.loads(fixed_json)
             except json.JSONDecodeError as e:
                 logger.error(f"Error al decodificar JSON: {e}")
         else:
             logger.error("No se encontró JSON válido en la respuesta.")
         return None
 
+    def fix_unbalanced_braces(self, text: str) -> str:
+        """
+        Detecta y corrige desbalance de llaves en JSON tipo texto.
+        """
+        open_braces = text.count('{')
+        close_braces = text.count('}')
+        diff = open_braces - close_braces
+
+        if diff > 0:
+            logger.warning(f"Faltan {diff} llaves de cierre en la respuesta JSON. Se agregarán automáticamente.")
+            text += '}' * diff
+        elif diff < 0:
+            logger.warning(f"Sobran {-diff} llaves de cierre en la respuesta JSON. Se intentará corregir.")
+            # Esto es opcional, normalmente no pasa
+            text = text.rstrip('}' * (-diff))
+
+        return text
