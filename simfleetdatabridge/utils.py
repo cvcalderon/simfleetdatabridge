@@ -135,3 +135,67 @@ class RequestApiLLM(OneShotBehaviour):
             text = text.rstrip('}' * (-diff))
 
         return text
+
+# ------------------------------------------------------------------------------------------------------------------------
+# Others utils
+
+def describe_profile(profile: dict, keys_to_describe: list) -> str:
+    """
+    Generates a profile description based on the specified main keys in 'keys_to_describe'.
+    It uses predefined templates for each key and ignores sub-keys.
+
+    Parameters:
+        profile (dict): The complete profile dictionary.
+        keys_to_describe (list): List of main keys to describe, e.g.,
+            ["demographics", "mobility_preferences", "environment", "transport_options"]
+
+    Returns:
+        str: A string that describes the profile.
+    """
+    description_parts = []  # Accumulate the description parts
+
+    for key, value in profile.items():
+        if key in keys_to_describe:
+            # Use a predefined template for each main key.
+            if key == "demographics" and isinstance(value, dict):
+                age = value.get("age", "unknown")
+                gender = value.get("gender", "unknown")
+                education = value.get("education", "unknown")
+                occupation = value.get("occupation", "unknown")
+                annual_income = value.get("annual_income", "unknown")
+                description_parts.append(
+                    f"Hi, I'm a {age}-year-old {gender}. I have a {education} degree and work as an {occupation}. My annual income is {annual_income} $."
+                )
+            elif key == "mobility_preferences" and isinstance(value, dict):
+                eco = value.get("eco-consciousness", "unknown")
+                time_sens = value.get("time-sensitivity", "unknown")
+                comfort = value.get("comfort-preference", "unknown")
+                budget = value.get("budget-sensitivity", "unknown")
+                reliability = value.get("reliability-sensitivity", "unknown")
+                description_parts.append(
+                    f"When it comes to mobility, I consider eco-consciousness to be {eco}, time sensitivity {time_sens}, comfort {comfort}, budget sensitivity {budget}, and reliability {reliability}."
+                )
+            elif key == "environment" and isinstance(value, dict):
+                arrival = value.get("arrival_time_limit", {})
+                if isinstance(arrival, dict):
+                    a_type = arrival.get("type", "unknown")
+                    a_time = arrival.get("time", "unknown")
+                    a_purpose = arrival.get("purpose", "unknown")
+                    description_parts.append(
+                        f"I need to be at my destination by a {a_type} deadline at {a_time} for {a_purpose}."
+                    )
+                else:
+                    description_parts.append(f"Environment details: {value}")
+            elif key == "transport_options" and isinstance(value, list):
+                options_str = ", ".join(value)
+                description_parts.append(
+                    f"My available transport options are: {options_str}."
+                )
+            else:
+                # Use a generic format for any other key
+                description_parts.append(f"{key}: {value}")
+
+    # Combine all description parts into a single string.
+    profile_description = " ".join(description_parts)
+    return profile_description
+

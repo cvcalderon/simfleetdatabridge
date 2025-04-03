@@ -51,24 +51,15 @@ class LlmPlanningAgent(OneShotBehaviour):
                         "their required arrival times and preferences, logically organizing the route and chosen transportation methods."
                     )
                 }
-                # ,
-                # {
-                #     "step": 4,
-                #     "title": "Verify Format and Structure",
-                #     "description": (
-                #         "Ensure that the generated plan complies with the required strictly JSON format, "
-                #         "including a 'travel_plan' field that contains a 'days' array with the itinerary details and a 'reason' field."
-                #     )
-                # }
             ]
 
         # If forced_week is True, insert an exploratory step.
         if self.forced_week:
             arrival_type = self.agent_profile.get("environment", {}) \
-                .get("arrival_time_limit", {}) \
-                .get("type", "unspecified")
+                                             .get("arrival_time_limit", {}) \
+                                             .get("type", "unspecified")
             exploratory_step = {
-                "step": None,  # Will be re-assigned
+                "step": None,  # Will be re-assigned later
                 "title": "Exploratory Transportation Analysis",
                 "description": (
                     "**Conduct an exploratory analysis of all available transport options as listed in 'transport_options'.** "
@@ -97,14 +88,14 @@ class LlmPlanningAgent(OneShotBehaviour):
         # Append the additional step.
         evaluation_steps = self.steps + [additional_step]
 
-        # If the agent profile contains a non-empty "patterns" key, insert pattern analysis instructions
+        # If the agent profile contains a non-empty "patterns" key, insert pattern analysis instructions.
         if self.agent_profile.get("patterns"):
             pattern_step = (
                 "Additionally, analyze and incorporate the mobility patterns provided in the 'patterns' field "
                 "of the user profile. Use these patterns to further refine the itinerary recommendations and "
                 "optimize the transportation choices."
             )
-            # Insert the pattern instructions into the antepenultimate step (third-to-last step)
+            # Insert the pattern instructions into the antepenultimate step (third-to-last step).
             if len(evaluation_steps) >= 3:
                 evaluation_steps[-3]["description"] += " " + pattern_step
 
@@ -119,8 +110,17 @@ class LlmPlanningAgent(OneShotBehaviour):
             f"Generate a personalized travel plan for the next {self.days} days, ensuring efficient transportation choices according to the user's profile."
         )
 
+        # Use the descriptive profile if profile_description is True.
+        if self.profile_description and self.profile_described:
+            profile_input = {"profile": self.profile_described}
+            # Merge the patterns if present in the original profile.
+            if self.agent_profile.get("patterns"):
+                profile_input["patterns"] = self.agent_profile["patterns"]
+        else:
+            profile_input = self.agent_profile
+
         prompt = {
-            "user_profile": self.agent_profile,
+            "user_profile": profile_input,
             "instructions": {
                 "task": task_text,
                 "evaluation_steps": evaluation_steps,
@@ -138,14 +138,15 @@ class LlmPlanningAgent(OneShotBehaviour):
         return json.dumps(prompt, indent=4)
 
     async def run(self):
-
+        # Generate a descriptive profile if the flag is set.
         if self.profile_description:
-            self.profile_described = describe_profile(self.agent_profile, ["demographics", "mobility_preferences", "environment", "transport_options"])
-
+            self.profile_described = describe_profile(
+                self.agent_profile,
+                ["demographics", "mobility_preferences", "environment", "transport_options"]
+            )
         prompt = self.generate_plan_prompt()
         # Call the LLM to get the decision using the constructed prompt.
         decision = await oneshot_request_llm(self.agent, config=self.agent.model_config, prompt=prompt)
         self.response = decision
-
 
 
