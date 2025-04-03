@@ -23,7 +23,7 @@ class LlmPlanningAgent(OneShotBehaviour):
         self.days = 3  # Example: itinerary for 3 days (e.g., Monday - Wednesday)
 
     def generate_plan_prompt(self):
-        # If no valid steps are provided, set default evaluation steps.
+        # If no valid steps are provided, use the default steps.
         if not self.steps or not isinstance(self.steps, list):
             self.steps = [
                 {
@@ -56,26 +56,52 @@ class LlmPlanningAgent(OneShotBehaviour):
         # If forced_week is True, insert an exploratory step.
         if self.forced_week:
             arrival_type = self.agent_profile.get("environment", {}) \
-                                             .get("arrival_time_limit", {}) \
-                                             .get("type", "unspecified")
+                .get("arrival_time_limit", {}) \
+                .get("type", "unspecified")
+
+            arrival = self.agent_profile.get("environment", {}) \
+                .get("arrival_time_limit", {}) \
+                .get("time", "unspecified")
+
             exploratory_step = {
-                "step": None,  # Will be re-assigned later
+                "step": None,  # Se reasignará la numeración posteriormente
                 "title": "Exploratory Transportation Analysis",
                 "description": (
-                    "**Conduct an exploratory analysis of all available transport options as listed in 'transport_options'.** "
-                    "Evaluate how each option fits with the user's arrival requirement, which is defined as "
-                    f"'{arrival_type}'. Consider alternative departure times, and creative approaches to optimize the itinerary. "
-                    "Examine potential benefits and drawbacks of each mode in an open-minded, investigative tone."
+                    "You MUST examine EACH transport mode listed in 'transport_options' SEPARATELY. "
+                    f"For each option, evaluate how well it fits the user's needs: {arrival_type} arrival by '{arrival}', eco-consciousness, comfort, reliability, budget and time. "
+                    "DO NOT assume a single best mode without comparing all options. Consider pros, cons, possible delays, creative uses, or combination strategies. "
+                    f"Show clearly why each mode is or isn't suitable for each of the {self.days} days."
                 )
             }
-            # Insert the exploratory step after the Evaluate Transportation Options step.
+            # Insert the exploratory step after the "Evaluate Transportation Options" step.
             self.steps.insert(2, exploratory_step)
 
-        # Re-assign step numbers for all evaluation steps.
+        # If the profile contains "patterns", insert a dedicated step to analyze them.
+        if self.agent_profile.get("patterns"):
+            pattern_analysis_step = {
+                "step": None,  # Will be reassigned later
+                "title": "Analyze Mobility Patterns",
+                "description": (
+                    "Analyze the mobility patterns provided in the 'patterns' field of the user profile. "
+                    "Use these patterns to further refine the itinerary recommendations and optimize transportation choices."
+                )
+            }
+            # Insert it right after "Evaluate Transportation Options" or after the exploratory step if it exists.
+            # Find the index of the "Evaluate Transportation Options" step.
+            index = next((i for i, step in enumerate(self.steps) if step["title"] == "Evaluate Transportation Options"),
+                         None)
+            if index is not None:
+                # Insert the new step right after.
+                self.steps.insert(index + 1, pattern_analysis_step)
+            else:
+                # If not found, add it at the end.
+                self.steps.append(pattern_analysis_step)
+
+        # Reassign step numbers sequentially.
         for idx, step in enumerate(self.steps, start=1):
             step["step"] = idx
 
-        # Define the additional step that enforces strict JSON output.
+        # Define an additional step to ensure strict JSON output.
         additional_step = {
             "step": len(self.steps) + 1,
             "title": "Output Strict JSON",
@@ -85,35 +111,26 @@ class LlmPlanningAgent(OneShotBehaviour):
             )
         }
 
-        # Append the additional step.
+        # Build the final list of evaluation_steps.
         evaluation_steps = self.steps + [additional_step]
 
-        # If the agent profile contains a non-empty "patterns" key, insert pattern analysis instructions.
-        if self.agent_profile.get("patterns"):
-            pattern_step = (
-                "Additionally, analyze and incorporate the mobility patterns provided in the 'patterns' field "
-                "of the user profile. Use these patterns to further refine the itinerary recommendations and "
-                "optimize the transportation choices."
-            )
-            # Insert the pattern instructions into the antepenultimate step (third-to-last step).
-            if len(evaluation_steps) >= 3:
-                evaluation_steps[-3]["description"] += " " + pattern_step
-
-        # Create a default days plan structure based on self.days.
+        # Create the structure for the itinerary days.
         days_plan = [
             {"day": f"Day {i + 1}", "transport_mode": "", "departure_time": "HH:MM AM/PM"}
             for i in range(self.days)
         ]
 
-        # Define a concise task instruction.
+        # Concise instruction for the task.
         task_text = (
             f"Generate a personalized travel plan for the next {self.days} days, ensuring efficient transportation choices according to the user's profile."
         )
 
-        # Use the descriptive profile if profile_description is True.
+        # Define the profile to send: if profile_description is enabled, use the descriptive profile.
         if self.profile_description and self.profile_described:
-            profile_input = {"profile": self.profile_described}
-            # Merge the patterns if present in the original profile.
+            profile_input = {
+                "profile": self.profile_described,
+                "transport_options": self.agent_profile.get("transport_options", [])
+            }
             if self.agent_profile.get("patterns"):
                 profile_input["patterns"] = self.agent_profile["patterns"]
         else:
