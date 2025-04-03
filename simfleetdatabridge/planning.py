@@ -73,8 +73,12 @@ class LlmPlanningAgent(OneShotBehaviour):
                     f"Show clearly why each mode is or isn't suitable for each of the {self.days} days."
                 )
             }
-            # Insert the exploratory step after the "Evaluate Transportation Options" step.
-            self.steps.insert(2, exploratory_step)
+            # Insert exploratory step AFTER pattern analysis if patterns exist, otherwise after Evaluate Transportation Options
+            insert_after_title = "Analyze Mobility Patterns" if self.agent_profile.get(
+                "patterns") else "Evaluate Transportation Options"
+            index = next((i for i, step in enumerate(self.steps) if step["title"] == insert_after_title), None)
+            if index is not None:
+                self.steps.insert(index + 1, exploratory_step)
 
         # If the profile contains "patterns", insert a dedicated step to analyze them.
         if self.agent_profile.get("patterns"):
@@ -87,15 +91,11 @@ class LlmPlanningAgent(OneShotBehaviour):
                 )
             }
             # Insert it right after "Evaluate Transportation Options" or after the exploratory step if it exists.
-            # Find the index of the "Evaluate Transportation Options" step.
+            # Insert immediately after "Evaluate Transportation Options", even before the exploratory step if it exists.
             index = next((i for i, step in enumerate(self.steps) if step["title"] == "Evaluate Transportation Options"),
                          None)
             if index is not None:
-                # Insert the new step right after.
                 self.steps.insert(index + 1, pattern_analysis_step)
-            else:
-                # If not found, add it at the end.
-                self.steps.append(pattern_analysis_step)
 
         # Reassign step numbers sequentially.
         for idx, step in enumerate(self.steps, start=1):
