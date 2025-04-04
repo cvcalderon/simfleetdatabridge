@@ -1,26 +1,29 @@
 import json
+import time
+import random
+from datetime import datetime, timedelta
 from spade.behaviour import OneShotBehaviour
 from loguru import logger
 from simfleetdatabridge.utils import oneshot_request_llm, describe_profile
 
 
-async def llm_agent_plan(agent, profile=None, prompt=None, forced_week=False, profile_description=False):
-    instance = LlmPlanningAgent(profile, prompt, forced_week, profile_description)
+async def llm_agent_plan(agent, profile=None, prompt=None, forced_week=False, profile_description=False, days=5):
+    instance = LlmPlanningAgent(profile, prompt, forced_week, profile_description, days)
     agent.add_behaviour(instance)
     await instance.join()
     return instance.response
 
 
 class LlmPlanningAgent(OneShotBehaviour):
-    def __init__(self, agent_profile, user_prompt, forced_week, profile_description):
+    def __init__(self, agent_profile, user_prompt, forced_week, profile_description, days):
         super().__init__()
-        self.steps = user_prompt  # Expected to be a list of steps (if provided)
+        self.steps = user_prompt  # A list of steps is expected (if provided)
         self.forced_week = forced_week
         self.agent_profile = agent_profile
         self.profile_description = profile_description
         self.profile_described = None
         self.response = None
-        self.days = 3  # Example: itinerary for 3 days (e.g., Monday - Wednesday)
+        self.days = days  # Number of days for the itinerary
 
     def generate_plan_prompt(self):
         # If no valid steps are provided, use the default steps.
@@ -58,13 +61,11 @@ class LlmPlanningAgent(OneShotBehaviour):
             arrival_type = self.agent_profile.get("environment", {}) \
                 .get("arrival_time_limit", {}) \
                 .get("type", "unspecified")
-
             arrival = self.agent_profile.get("environment", {}) \
                 .get("arrival_time_limit", {}) \
                 .get("time", "unspecified")
-
             exploratory_step = {
-                "step": None,  # Se reasignará la numeración posteriormente
+                "step": None,  # Numbering will be reassigned later
                 "title": "Exploratory Transportation Analysis",
                 "description": (
                     "You MUST examine EACH transport mode listed in 'transport_options' SEPARATELY. "
@@ -73,35 +74,31 @@ class LlmPlanningAgent(OneShotBehaviour):
                     f"Show clearly why each mode is or isn't suitable for each of the {self.days} days."
                 )
             }
-            # Insert exploratory step AFTER pattern analysis if patterns exist, otherwise after Evaluate Transportation Options
-            insert_after_title = "Analyze Mobility Patterns" if self.agent_profile.get(
-                "patterns") else "Evaluate Transportation Options"
+            # Insert the exploratory step after the mobility patterns analysis or, if not available, after 'Evaluate Transportation Options'
+            insert_after_title = "Analyze Mobility Patterns" if self.agent_profile.get("patterns") else "Evaluate Transportation Options"
             index = next((i for i, step in enumerate(self.steps) if step["title"] == insert_after_title), None)
             if index is not None:
                 self.steps.insert(index + 1, exploratory_step)
 
-        # If the profile contains "patterns", insert a dedicated step to analyze them.
+        # If the profile contains "patterns", insert a step to analyze them.
         if self.agent_profile.get("patterns"):
             pattern_analysis_step = {
-                "step": None,  # Will be reassigned later
+                "step": None,  # Numbering will be reassigned later
                 "title": "Analyze Mobility Patterns",
                 "description": (
                     "Analyze the mobility patterns provided in the 'patterns' field of the user profile. "
                     "Use these patterns to further refine the itinerary recommendations and optimize transportation choices."
                 )
             }
-            # Insert it right after "Evaluate Transportation Options" or after the exploratory step if it exists.
-            # Insert immediately after "Evaluate Transportation Options", even before the exploratory step if it exists.
-            index = next((i for i, step in enumerate(self.steps) if step["title"] == "Evaluate Transportation Options"),
-                         None)
+            index = next((i for i, step in enumerate(self.steps) if step["title"] == "Evaluate Transportation Options"), None)
             if index is not None:
                 self.steps.insert(index + 1, pattern_analysis_step)
 
-        # Reassign step numbers sequentially.
+        # Reassign the numbering of the steps.
         for idx, step in enumerate(self.steps, start=1):
             step["step"] = idx
 
-        # Define an additional step to ensure strict JSON output.
+        # Additional step to ensure output in strict JSON format.
         additional_step = {
             "step": len(self.steps) + 1,
             "title": "Output Strict JSON",
@@ -111,21 +108,19 @@ class LlmPlanningAgent(OneShotBehaviour):
             )
         }
 
-        # Build the final list of evaluation_steps.
         evaluation_steps = self.steps + [additional_step]
 
         # Create the structure for the itinerary days.
         days_plan = [
-            {"day": f"Day {i + 1}", "transport_mode": "", "departure_time": "HH:MM AM/PM"}
+            {"day": f"Day {i + 1}", "suggested_transport_mode": "", "suggested_departure_time": "HH:MM AM/PM"}
             for i in range(self.days)
         ]
 
-        # Concise instruction for the task.
         task_text = (
             f"Generate a personalized travel plan for the next {self.days} days, ensuring efficient transportation choices according to the user's profile."
         )
 
-        # Define the profile to send: if profile_description is enabled, use the descriptive profile.
+        # Determine the profile to send: if profile_description is enabled, use the descriptive version.
         if self.profile_description and self.profile_described:
             profile_input = {
                 "profile": self.profile_described,
@@ -154,16 +149,226 @@ class LlmPlanningAgent(OneShotBehaviour):
         }
         return json.dumps(prompt, indent=4)
 
+    def is_valid_plan_structure(self, decision: dict, days: int) -> bool:
+        """
+        Validates that the response contains the 'travel_plan' section with the expected structure.
+
+        Requirements:
+          - 'travel_plan' must exist and be a dictionary.
+          - 'travel_plan' must contain the key 'days', which should be a non-empty list with exactly {days} elements.
+          - 'travel_plan' must contain the key 'reason'.
+
+        Returns:
+            bool: True if the structure is valid; False otherwise.
+        """
+        try:
+            if not isinstance(decision, dict):
+                logger.warning("The decision is not a dictionary.")
+                return False
+
+            if "travel_plan" not in decision:
+                logger.warning("The 'travel_plan' section is missing in the decision.")
+                return False
+
+            travel_plan = decision["travel_plan"]
+            if not isinstance(travel_plan, dict):
+                logger.warning("'travel_plan' must be a dictionary.")
+                return False
+
+            if "days" not in travel_plan or "reason" not in travel_plan:
+                logger.warning("Either 'days' or 'reason' is missing in the 'travel_plan' section.")
+                return False
+
+            days_list = travel_plan["days"]
+            if not isinstance(days_list, list) or len(days_list) == 0:
+                logger.warning("The 'days' key must be a non-empty list.")
+                return False
+
+            if len(days_list) != days:
+                logger.warning(
+                    f"The number of planned days ({len(days_list)}) does not match the expected value ({days}).")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error checking the structure: {e}")
+            return False
+
+
+    def is_valid_plan_decision(self, decision: dict, profile: dict, available_actions: list, days: int) -> bool:
+        """
+        Validates that the travel plan content (within 'travel_plan') meets the logical constraints.
+
+        It verifies that:
+          - The 'travel_plan' section exists and contains a 'days' list with exactly {days} days.
+          - Each day of the itinerary includes the keys 'suggested_departure_time' and 'suggested_transport_mode'.
+          - Each day has a suggested transport mode that is among the allowed options
+            (defined in the profile and in available_actions).
+          - Each day has a departure time that is within the allowed range.
+
+        Returns:
+            bool: True if the plan's content is valid; False otherwise.
+        """
+        try:
+            travel_plan = decision.get("travel_plan")
+            if not travel_plan:
+                logger.warning("The 'travel_plan' section was not found in the decision.")
+                return False
+
+            days_list = travel_plan.get("days")
+            if not days_list or not isinstance(days_list, list):
+                logger.warning("The 'days' key must be a list with at least one day.")
+                return False
+
+            if len(days_list) != days:
+                logger.warning(
+                    f"The number of days in the plan ({len(days_list)}) does not match the expected value ({days}).")
+                return False
+
+            # Get the valid transport options from the profile.
+            valid_transports = set(profile.get("environment", {}).get("transport_options", []))
+
+            # Validate each day of the itinerary.
+            required_day_keys = ["suggested_departure_time", "suggested_transport_mode"]
+            for i, day in enumerate(days_list, start=1):
+                # Verify that the required keys exist.
+                if not all(key in day for key in required_day_keys):
+                    logger.warning(f"Day {i} does not contain the required fields: {required_day_keys}.")
+                    return False
+
+                transport_mode = day["suggested_transport_mode"].lower()
+                departure_time = day["suggested_departure_time"]
+
+                # Validate the transport mode.
+                if transport_mode not in valid_transports or transport_mode not in available_actions:
+                    logger.warning(f"Invalid transport mode on day {i}: {transport_mode}")
+                    return False
+
+                # Validate the departure time.
+                departure_minutes = self.agent._convert_to_minutes(departure_time)
+                if not (self.agent.start_time <= departure_minutes <= self.agent.end_time):
+                    logger.warning(
+                        f"The departure time on day {i} ({departure_time} - {departure_minutes} min) "
+                        f"is out of the allowed range ({self.agent.start_time}-{self.agent.end_time} min)."
+                    )
+                    return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error validating the decision: {e}")
+            return False
+
+    def generate_random_plan(self) -> dict:
+        """
+        Generates a fallback travel plan with random default values for each day.
+
+        It uses the 'time' value from 'arrival_time_limit' in 'environment' to generate
+        a range of possible departure times. The window spans 2 hours before the arrival time,
+        with departure times spaced every 20 minutes.
+
+        Returns:
+            dict: A travel plan structured as a JSON object.
+        """
+
+        # Retrieve valid transport options; fallback to ["walk"] if none are provided.
+        valid_transports = self.agent_profile.get("environment", {}).get("transport_options", [])
+        if not valid_transports:
+            valid_transports = ["walk"]
+
+        # Retrieve arrival time from the profile; default to "07:00 PM" if not available.
+        arrival_time_str = self.agent_profile.get("environment", {}) \
+            .get("arrival_time_limit", {}) \
+            .get("time", "07:00 AM")
+        try:
+            arrival_time = datetime.strptime(arrival_time_str, "%I:%M %p")
+        except Exception as e:
+            logger.warning(f"Error parsing arrival time '{arrival_time_str}', defaulting to 07:00 PM: {e}")
+            arrival_time = datetime.strptime("07:00 AM", "%I:%M %p")
+
+        # Define the start of the departure window: 2 hours before the arrival time.
+        start_time = arrival_time - timedelta(hours=2)
+
+        # Generate possible departure times within the 2-hour window in 20-minute intervals.
+        possible_times = []
+        current_time = start_time
+        while current_time <= arrival_time:
+            possible_times.append(current_time.strftime("%I:%M %p"))
+            current_time += timedelta(minutes=20)
+
+        # Generate the itinerary for the given number of days.
+        days_plan = []
+        for _ in range(self.days):
+            mode = random.choice(valid_transports)
+            departure_time = random.choice(possible_times)
+            days_plan.append({
+                "suggested_departure_time": departure_time,
+                "suggested_transport_mode": mode
+            })
+
+        plan = {
+            "travel_plan": {
+                "days": days_plan,
+                "reason": f"LLM response was invalid or failed parsing. Fallback plan used random default values for {self.days} days."
+            }
+        }
+        return plan
+
+
+    async def generate_plan(self) -> dict:
+        """
+        Generates a personalized travel plan by calling the LLM and performing the necessary validations.
+
+        Up to 3 attempts are made to obtain a valid plan, validating:
+          - The structure of 'travel_plan' (includes 'days' with exactly self.days elements and 'reason').
+          - The content of each day (the keys 'suggested_departure_time' and 'suggested_transport_mode', valid transportation mode and time within range).
+
+        If no valid plan is obtained after the attempts, a fallback plan with default values is used.
+        """
+        max_attempts = 3
+        attempt = 0
+        plan = None
+
+        prompt = self.generate_plan_prompt()
+        logger.warning(f"DEBUG prompt: {prompt}")
+
+        while attempt < max_attempts:
+            attempt += 1
+            logger.warning(f"Attempt #{attempt} to get valid plan for {self.agent.name}")
+
+            #start_time = time.time()
+            # Call to the LLM (connection is opened and closed in each attempt)
+            plan = await oneshot_request_llm(self.agent, config=self.agent.model_config, prompt=prompt)
+            #end_time = time.time()
+
+            # Validate the structure of the plan (includes correct number of days)
+            if self.is_valid_plan_structure(plan, self.days):
+                # Validate the content and logic of the plan
+                if self.is_valid_plan_decision(plan, self.agent_profile, self.agent.actions, self.days):
+                    first_day_mode = plan["travel_plan"]["days"][0]["suggested_transport_mode"].lower()
+                    logger.warning(f"DEBUG Valid plan. First day transport mode: {first_day_mode}")
+
+            logger.warning(f"DEBUG plan: {plan}")
+
+            if plan and self.is_valid_plan_structure(plan, self.days) and self.is_valid_plan_decision(plan, self.agent_profile, self.agent.actions, self.days):
+                break  # A valid plan has been obtained.
+            else:
+                plan = None  # Force the fallback for this attempt.
+
+        # Fallback: if no valid plan is obtained after the attempts.
+        if plan is None:
+            plan = self.generate_random_plan()
+            logger.warning(f"DEBUG Fallback plan: {plan}")
+
+        return plan
+
     async def run(self):
-        # Generate a descriptive profile if the flag is set.
+        # If required, generate a detailed profile description.
         if self.profile_description:
             self.profile_described = describe_profile(
                 self.agent_profile,
                 ["demographics", "mobility_preferences", "environment", "transport_options"]
             )
-        prompt = self.generate_plan_prompt()
-        # Call the LLM to get the decision using the constructed prompt.
-        decision = await oneshot_request_llm(self.agent, config=self.agent.model_config, prompt=prompt)
-        self.response = decision
-
-
+        # Generate the validated plan.
+        self.response = await self.generate_plan()
