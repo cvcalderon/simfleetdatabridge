@@ -2,7 +2,7 @@ import requests
 from loguru import logger
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class LlmBase:
     """
@@ -21,6 +21,13 @@ class LlmBase:
         self.memory = {}
         self.decisions = {}
         self.environment = {}
+        self.plan = {}
+
+        self.date_week = {}
+        self.index = 0
+        self.total_days = 0
+
+        self.summary_week = {}
 
         #History
         self.short_memory_history = {}  # No umbral
@@ -251,3 +258,219 @@ class LlmBase:
         """
         total_scaled_minutes = self.end_time - self.start_time
         return total_scaled_minutes * 1  # 1 scaled minute = 1 real second
+
+
+
+############################### Fechas #######################################
+
+    # Generador de fechas
+
+    def generate_date_dictionary(self, start_date, end_date):
+        """
+        Generates a dictionary with the dates between start_date and end_date (inclusive).
+        Each entry is in the format:
+        {index: [(day_name, day), (month_name, month), year]}
+        It is assumed that dates are provided in the format dd/mm/yyyy.
+        """
+        try:
+            start_date_dt = datetime.strptime(start_date, "%d/%m/%Y")
+            end_date_dt = datetime.strptime(end_date, "%d/%m/%Y")
+        except ValueError:
+            logger.error("Error", "Invalid date format. Please use dd/mm/yyyy")
+            return None
+
+        # Dictionaries to convert numbers to names in English
+        days_of_week = {
+            0: 'Monday', 1: 'Tuesday', 2: 'Wednesday', 3: 'Thursday',
+            4: 'Friday', 5: 'Saturday', 6: 'Sunday'
+        }
+        months = {
+            1: 'January', 2: 'February', 3: 'March', 4: 'April',
+            5: 'May', 6: 'June', 7: 'July', 8: 'August',
+            9: 'September', 10: 'October', 11: 'November', 12: 'December'
+        }
+
+        date_dict = {}
+        current_date = start_date_dt
+        index = 1
+
+        while current_date <= end_date_dt:
+            day_name = days_of_week[current_date.weekday()]
+            day_number = current_date.day
+            month_name = months[current_date.month]
+            month_number = current_date.month
+            year = current_date.year
+
+            # Store the information in the requested format
+            date_dict[index] = [(day_name, day_number), (month_name, month_number), year]
+
+            index += 1
+            current_date += timedelta(days=1)
+
+        return date_dict
+        #self.date_dict = date_dict
+
+    def group_dates_by_week(self, date_dict, excluded_days=None):
+        """
+        Groups the days in the 'date_dict' into natural weeks based on the first day.
+        Optionally removes specified days from each week.
+
+        Parameters:
+        - date_dict: Dictionary with date information.
+        - excluded_days: List of day names (e.g. ["Saturday", "Sunday"]) to exclude. If None, includes all.
+
+        Returns:
+        - Dictionary with keys 'week_1', 'week_2', ... and lists of remaining days.
+        """
+        weeks = {}
+        week_num = 1
+        current_week = []
+
+        sorted_keys = sorted(date_dict.keys())
+        total_days = len(sorted_keys)
+
+        if not sorted_keys:
+            return weeks  # handle empty input
+
+        # Get the name of the first day
+        first_day_name = date_dict[sorted_keys[0]][0][0]
+
+        days_to_sunday = {
+            "Monday": 6, "Tuesday": 5, "Wednesday": 4, "Thursday": 3,
+            "Friday": 2, "Saturday": 1, "Sunday": 0,
+        }
+
+        days_in_first_week = days_to_sunday[first_day_name] + 1
+        idx = 0
+
+        while idx < total_days:
+            slice_size = days_in_first_week if week_num == 1 else 7
+            week_slice_keys = sorted_keys[idx: idx + slice_size]
+
+            # Filter days if excluded_days is provided
+            filtered_week = []
+            for key in week_slice_keys:
+                day_info = date_dict[key]
+                day_name = day_info[0][0]
+                if excluded_days is None or day_name not in excluded_days:
+                    filtered_week.append(day_info)
+
+            # Only include non-empty weeks
+            if filtered_week:
+                weeks[f"week_{week_num}"] = filtered_week
+
+            idx += slice_size
+            week_num += 1
+
+        #return weeks
+        #self.date_week = weeks
+        self.date_week = self._flatten_weeks(weeks)
+
+    def _flatten_weeks(self, weeks_dict):
+        """
+        Convierte el diccionario en una lista de tuplas (week_name, day_info)
+        """
+        flat = []
+        for week_name, days in weeks_dict.items():
+            for day in days:
+                flat.append((week_name, day))
+        return flat
+
+    def update_total_days(self):
+        """
+        Actualiza el atributo total_days basado en la lista de fechas actuales.
+        """
+        self.total_days = len(self.date_week)
+
+    def has_next_day(self):
+        return self.index < self.total_days
+
+    def get_current_day(self):
+        if not self.has_next_day():
+            return None
+        return self.date_week[self.index][1]
+
+    def get_current_week_name(self):
+        if not self.has_next_day():
+            return None
+        return self.date_week[self.index][0]
+
+    def get_day_context(self):
+        """
+        Devuelve un diccionario simple útil para un LLM.
+        """
+        week, [(day_name, day), (month_name, month), year] = self.date_week[self.index]
+        return {
+            "week": week,
+            "day_name": day_name,
+            "day": day,
+            "month_name": month_name,
+            "month": month,
+            "year": year
+        }
+
+    def count_days_per_week(self):
+        """
+        Iterates over the days using an auxiliary index and counts how many days are in each week.
+        Returns a dictionary in the format {week name: number of days}.
+        """
+        weeks = {}
+        idx = 0
+
+        while idx < self.total_days:
+            week = self.date_week[idx][0]
+            if week not in weeks:
+                weeks[week] = 0
+            weeks[week] += 1
+            idx += 1
+
+        self.summary_week = weeks
+        #return weeks
+
+    def get_days_in_week(self, week_name):
+        """
+        Returns the number of days for a given week name from the weeks dictionary.
+        If the week is not found, returns 0.
+        """
+
+        return self.summary_week.get(week_name, 0)
+
+    def is_week_finished(self):
+        """
+        Retorna True si el siguiente día está en otra semana (o es el final).
+        """
+        if self.index + 1 >= self.total_days:
+            return True  # última iteración
+        current_week = self.date_week[self.index][0]
+        next_week = self.date_week[self.index + 1][0]
+        return current_week != next_week
+
+    def advance(self):
+        if self.has_next_day():
+            self.index += 1
+
+    # Ejemplo de uso:
+    # str_day, day, str_month, month, year = mi_definicion(3)
+
+
+    def is_first_day_of_current_week(self):
+        """
+        Retorna True si el índice actual apunta al primer día de su semana.
+        """
+        if self.index == 0:
+            return True
+
+        current_week = self.date_week[self.index][0]
+        previous_week = self.date_week[self.index - 1][0]
+        return current_week != previous_week
+
+    def is_last_day_of_current_week(self):
+        """
+        Retorna True si el índice actual apunta al último día de su semana.
+        """
+        if self.index >= self.total_days - 1:
+            return True  # Último día total
+
+        current_week = self.date_week[self.index][0]
+        next_week = self.date_week[self.index + 1][0]
+        return current_week != next_week
