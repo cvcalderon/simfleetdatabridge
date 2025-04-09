@@ -4,6 +4,7 @@ import json
 import re
 import requests
 import openai
+from datetime import datetime, timedelta
 
 
 async def oneshot_request_llm(agent, config=None, prompt=None):
@@ -198,4 +199,155 @@ def describe_profile(profile: dict, keys_to_describe: list) -> str:
     # Combine all description parts into a single string.
     profile_description = " ".join(description_parts)
     return profile_description
+
+def describe_short_memory(short_memory, environment):
+    descriptions = []
+
+    # Extract arrival limit data
+    limit_time_str = environment["arrival_time_limit"]["time"]
+    limit_time = datetime.strptime(limit_time_str, "%I:%M %p")
+    purpose = environment["arrival_time_limit"].get("purpose", "the destination")
+    limit_type = environment["arrival_time_limit"].get("type", "strict")
+
+    for entry in short_memory:
+        # Date formatting
+        day = entry["fecha"]["day_text"]
+        month = entry["fecha"]["mes"]
+        day_number = entry["fecha"]["day_number"]
+        date_str = f"{day}, {month} {day_number}"
+
+        # Basic transport info
+        departure = entry["departure_time"]
+        arrival = entry["arrival_time"]
+        travel_time = entry["travel_time_min"]
+        wait_time = entry["waiting_time_min"]
+        distance = entry["distance_km"]
+        mode = entry["transport_mode"].replace("-", " ")
+        cost = entry["cost"]
+
+        # Decision info
+        was_late = entry["decision_context"]["was_late"]
+        completed = entry["decision_context"]["completed"]
+        reason = entry["decision_context"].get("reason", "-")
+
+        if not completed or arrival is None:
+            fail_reason = f"Reason: {reason}." if reason and reason != "-" else "No reason provided."
+            description = (
+                f"On {date_str}, the trip using {mode} starting at {departure} was not completed. "
+                f"{fail_reason} No arrival time available. The agent did not reach their destination for {purpose} "
+                f"(which was scheduled before {limit_time_str})."
+            )
+        else:
+            # Completed trip
+            arrival_dt = datetime.strptime(arrival, "%I:%M %p")
+            time_diff = int((arrival_dt - limit_time).total_seconds() / 60)
+            punctuality = ""
+
+            if limit_type == "strict" or limit_type == "flexible":
+                if time_diff > 0:
+                    punctuality = f"Arrival was {time_diff} minutes late for {purpose} (limit: {limit_time_str})."
+                elif time_diff < 0:
+                    punctuality = f"Arrival was {abs(time_diff)} minutes early for {purpose} (limit: {limit_time_str})."
+                else:
+                    punctuality = f"Arrival was exactly on time for {purpose} (limit: {limit_time_str})."
+
+            status = "There was a delay." if was_late else "No delay."
+            completion = "Trip completed."
+
+            description = (
+                f"On {date_str}, departure was at {departure} and arrival at {arrival}. "
+                f"Mode of transport: {mode}. Duration: {travel_time} minutes (waiting time: {wait_time} min), "
+                f"distance: {distance} km. Cost: ${cost:.2f}. {status} {completion} {punctuality}"
+            )
+
+        descriptions.append(description.strip())
+
+    return descriptions
+
+
+def describe_plan(day_data):
+    travel = day_data.get("travel", {})
+    date = day_data.get("date_context", {})
+
+    # Acceso seguro a los valores necesarios
+    transport_mode = travel.get("suggested_transport_mode", "unspecified transport")
+    departure_time = travel.get("suggested_departure_time", "unspecified time")
+
+    day_name = date.get("day_name", "Unknown day")
+    month_name = date.get("month_name", "Unknown month")
+    day_number = date.get("day", "Unknown date")
+
+    # Construcción del mensaje
+    description = (
+        f"The trip is scheduled for {day_name}, {month_name} {day_number}. "
+        f"The mode of transport will be {transport_mode}, "
+        f"with a departure time at {departure_time}."
+    )
+
+    return description
+
+
+def generate_pattern_descriptions(merged_patterns: dict) -> dict:
+    """
+    Generates optimized natural language descriptions for each merged mobility pattern.
+
+    Args:
+        merged_patterns (dict): Dictionary of merged patterns, as stored in long_memory["by_pattern"]
+
+    Returns:
+        dict: {1: "Description of pattern 1", 2: "Description of pattern 2", ...}
+    """
+    descriptions = {}
+
+    for i, (pattern_id, pattern) in enumerate(merged_patterns.items(), start=1):
+        detection = pattern.get("detection", {})
+        behavior = pattern.get("behavior", {})
+        context = pattern.get("external_context", {})
+
+        # Extract detection data
+        days = detection.get("day_names", [])
+        months = detection.get("months", [])
+        time_window = detection.get("time_window", {})
+        start_time = time_window.get("start", "")
+        end_time = time_window.get("end", "")
+        frequency = detection.get("frequency", 0)
+
+        # Extract behavior data
+        modes = behavior.get("modes_used", [])
+        travel_time = behavior.get("avg_travel_time_min", 0)
+        wait_time = behavior.get("avg_waiting_time_min", 0)
+        cost = behavior.get("avg_cost", 0)
+        distance = behavior.get("avg_distance_km", 0)
+
+        # Extract context
+        delays = context.get("delays_occurred_days", 0)
+        missed = context.get("missed_destination_days", 0)
+
+        # Formatting helpers
+        days_str = ", ".join(days)
+        months_str = ", ".join(months)
+        modes_str = ", ".join(modes)
+
+        # Build narrative
+        desc = (
+            f"A frequent mobility pattern was observed during the month(s) of {months_str} "
+            f"on the following weekdays: {days_str}. All trips occurred within a consistent time window "
+            f"from {start_time} to {end_time}, with a total of {frequency} recorded instances.\n\n"
+            f"The user consistently used {modes_str} as their transport mode. Each trip averaged "
+            f"{travel_time} minutes of travel time, {wait_time} minutes of waiting, and covered approximately "
+            f"{distance} kilometers. These trips had an average cost of {cost}.\n\n"
+        )
+
+        if delays > 0 or missed > 0:
+            desc += (
+                f"There were {delays} day(s) with delays and {missed} day(s) where the destination was missed. "
+            )
+        else:
+            desc += "There were no delays or missed trips recorded. "
+
+        #desc += "No common external situations were reported, and no reflections or adjustments were noted."
+
+        descriptions[i] = desc.strip()
+
+    return descriptions
 
