@@ -15,11 +15,11 @@ async def llm_agent_plan(agent, profile=None, prompt=None, forced_week=False, pr
 
 
 class LlmPlanningAgent(OneShotBehaviour):
-    def __init__(self, agent_profile, user_prompt, forced_week, profile_description, days):
+    def __init__(self, profile, prompt, forced_week, profile_description, days):
         super().__init__()
-        self.steps = user_prompt  # A list of steps is expected (if provided)
+        self.steps = prompt  # A list of steps is expected (if provided)
         self.forced_week = forced_week
-        self.agent_profile = agent_profile
+        self.agent_profile = profile
         self.profile_description = profile_description
         self.profile_described = None
         self.response = None
@@ -124,7 +124,7 @@ class LlmPlanningAgent(OneShotBehaviour):
         if self.profile_description and self.profile_described:
             profile_input = {
                 "profile": self.profile_described,
-                "transport_options": self.agent_profile.get("transport_options", [])
+                "transport_options": self.agent_profile.get("environment", {}).get("transport_options", [])
             }
             if self.agent_profile.get("patterns"):
                 profile_input["patterns"] = self.agent_profile["patterns"]
@@ -330,6 +330,8 @@ class LlmPlanningAgent(OneShotBehaviour):
         attempt = 0
         plan = None
 
+        logger.warning(f"DEBUG: Agent_profile: ({self.agent_profile}) Days:({self.days}).")
+
         prompt = self.generate_plan_prompt()
         logger.warning(f"DEBUG prompt: {prompt}")
 
@@ -368,7 +370,7 @@ class LlmPlanningAgent(OneShotBehaviour):
         if self.profile_description:
             self.profile_described = describe_profile(
                 self.agent_profile,
-                ["demographics", "mobility_preferences", "environment", "transport_options"]
+                ["demographics", "mobility_preferences", "environment"]
             )
         # Generate the validated plan.
         self.response = await self.generate_plan()
