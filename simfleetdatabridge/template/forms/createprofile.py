@@ -449,11 +449,11 @@ class CreateProfile(tk.Frame):
                 profiles[profile_name] = {
                     "demographics": demographics,  # Solo los valores opcionales que no sean vacíos
                     "mobility_preferences": {
-                        "Eco consciousness": eco,
-                        "Time sensitivity": time_sens,
-                        "Comfort preference": comfort,
-                        "Budget sensitivity": budget,
-                        "Reliability sensitivity": reliability
+                        "eco-consciousness": eco,
+                        "time-sensitivity": time_sens,
+                        "comfort-preference": comfort,
+                        "budget-sensitivity": budget,
+                        "reliability-sensitivity": reliability
                     },
                     "environment": {
                         "arrival_time_limit": {
