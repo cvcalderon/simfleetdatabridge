@@ -47,6 +47,19 @@ class BusCustomerWaitingToMoveState(BusCustomerStrategyBehaviour):
             # Obtain the list of bus stops if not available
             self.agent.stop_dic = await self.agent.get_list_agent_position(self.agent.type_service, self.agent.stop_dic)
 
+            # New statistics - TESTING
+            path, distance, duration = await self.agent.request_path(
+                self.agent.get("current_pos"), self.agent.customer_dest
+            )
+
+            # New statistics
+            # Event 2: Trip completion
+            self.agent.events_store.emit(
+                event_type="start_route",
+                details={"cost": 1.5, "transport": "bus",
+                         "distance": distance}
+            )
+
             self.set_next_state(CUSTOMER_WAITING_TO_MOVE)
             return
         else:
@@ -55,13 +68,6 @@ class BusCustomerWaitingToMoveState(BusCustomerStrategyBehaviour):
 
             if self.agent.current_stop[1] != self.agent.get("current_pos"):
                 self.agent.pedestrian_dest = self.agent.current_stop[1]
-
-                # New statistics
-                # Event 1: Travel to destination
-                self.agent.events_store.emit(
-                    event_type="travel_to_destination",
-                    details={}
-                )
 
                 logger.info(
                     "Agent {} on route to destination {}".format(self.agent.name, self.agent.current_stop[1])
@@ -138,20 +144,23 @@ class BusCustomerMovingToDestState(BusCustomerStrategyBehaviour):
             else:
 
                 if not self.agent.get_position() == self.agent.customer_dest:
+
+                    # New statistics
+                    # Event 4: Travel for Pickup
+                    self.agent.events_store.emit(
+                        event_type="wait_for_pickup",
+                        details={}
+                    )
+
+
                     self.set_next_state(CUSTOMER_IN_STOP)
                 else:
-
-                    # New statistics - TESTING
-                    path, distance, duration = await self.agent.request_path(
-                        self.agent.get("current_pos"), self.agent.customer_dest
-                    )
 
                     # New statistics
                     # Event 2: Trip completion
                     self.agent.events_store.emit(
                         event_type="trip_completion",
-                        details={"cost": 1.5, "transport": "bus",
-                                 "distance": distance}
+                        details={}
                     )
 
                     self.set_next_state(CUSTOMER_IN_DEST)
@@ -236,6 +245,14 @@ class BusCustomerWaitingForApprovalState(BusCustomerStrategyBehaviour):
                     content = {"line": self.agent.line}
                     await self.inform_stop(content)
                     self.agent.set("current_transport", sender)
+
+                    # New statistics
+                    # Event 5: Customer Pickup
+                    self.agent.events_store.emit(
+                        event_type="customer_pickup",
+                        details={}
+                    )
+
                     self.set_next_state(CUSTOMER_IN_TRANSPORT)
                     return
                 elif performative == REFUSE_PERFORMATIVE:  # transport is full, rejects customer boarding
@@ -326,6 +343,14 @@ class BusCustomerInDestState(BusCustomerStrategyBehaviour):
                             logger.debug("{} move_to destination {}".format(self.agent.name, self.agent.customer_dest))
 
                             await self.agent.move_to(self.agent.customer_dest)
+
+                            # New statistics
+                            # Event 6: Travel to destination
+                            self.agent.events_store.emit(
+                                event_type="travel_to_destination",
+                                details={}
+                            )
+
                             self.set_next_state(CUSTOMER_MOVING_TO_DEST)
                             return
                         except AlreadyInDestination:
