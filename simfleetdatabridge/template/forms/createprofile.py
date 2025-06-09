@@ -138,7 +138,7 @@ class CreateProfile(tk.Frame):
                                                                                                                 pady=2)
 
         self.transport_options_vars = {}
-        transport_modes = ["walk", "taxi", "personal-car", "personal-bike"]
+        transport_modes = ["walk", "taxi", "personal-car", "personal-bike", "bus"]
 
         self.transport_frame = tk.Frame(self.environment_frame, bg="white")
         self.transport_frame.grid(row=5, column=0, columnspan=2, padx=5, pady=2)
@@ -180,9 +180,10 @@ class CreateProfile(tk.Frame):
     def create_profiles_table(self):
         """Crea la tabla de perfiles en la interfaz con soporte para campos dinámicos."""
 
-        # Definir columnas base
-        self.columns = ["Name", "Age", "Nº agents", "Gender", "Education", "Occupation", "Income", "Eco", "Time", "Comfort", "Budget", "Reliability",
-                        "Hour", "Purpose", "Transport options"]
+        # Definir columnas base (agregamos 'Arrival Type')
+        self.columns = ["Name", "Age", "Nº agents", "Gender", "Education", "Occupation", "Income",
+                        "Eco", "Time", "Comfort", "Budget", "Reliability",
+                        "Hour", "Purpose", "Transport options", "Arrival Type"]
 
         # Crear Treeview con las columnas base
         self.tree = ttk.Treeview(self.main_frame, columns=self.columns, show="headings", selectmode="extended")
@@ -265,7 +266,7 @@ class CreateProfile(tk.Frame):
         profile_data = (
             profile_name, profile_age, num_agents, gender, education, occupation, annual_income,
             eco, time_sens, comfort, budget, reliability,
-            arrival_time_value, purpose_value, transport_str
+            arrival_time_value, purpose_value, transport_str, self.arrival_type.get()
         )
 
         if self.selected_item_id:
@@ -343,6 +344,9 @@ class CreateProfile(tk.Frame):
         for mode, var in self.transport_options_vars.items():
             var.set(mode in transport_options)
 
+        # Restaurar tipo de llegada
+        self.arrival_type.set(values[15])
+
         self.update_tree_data()
 
     def load_profiles(self):
@@ -385,11 +389,11 @@ class CreateProfile(tk.Frame):
             education = data["demographics"].get("education", "N/A")
             occupation = data["demographics"].get("occupation", "N/A")
             annual_income = data["demographics"].get("annual_income", "N/A")
-            eco = data["mobility_preferences"].get("Eco consciousness", "N/A")
-            time_sens = data["mobility_preferences"].get("Time sensitivity", "N/A")
-            comfort = data["mobility_preferences"].get("Comfort preference", "N/A")
-            budget = data["mobility_preferences"].get("Budget sensitivity", "N/A")
-            reliability = data["mobility_preferences"].get("Reliability sensitivity", "N/A")
+            eco = data["mobility_preferences"].get("eco-consciousness", "N/A")
+            time_sens = data["mobility_preferences"].get("time-sensitivity", "N/A")
+            comfort = data["mobility_preferences"].get("comfort-preference", "N/A")
+            budget = data["mobility_preferences"].get("budget-sensitivity", "N/A")
+            reliability = data["mobility_preferences"].get("reliability-sensitivity", "N/A")
             arrival_time = data["environment"]["arrival_time_limit"].get("time", "N/A")
             purpose = data["environment"]["arrival_time_limit"].get("purpose", "N/A")
             transport_options = ", ".join(data["environment"].get("transport_options", [])) if data["environment"].get(
@@ -414,7 +418,7 @@ class CreateProfile(tk.Frame):
             values = self.tree.item(item, "values")
 
             # Extraer valores base
-            profile_base_name = values[0]  # Nombre base (ejemplo: "Pedestrian")
+            profile_base_name = values[0].lower()  # Nombre base (ejemplo: "Pedestrian")
             profile_age = values[1]
             num_agents = int(values[2])  # Número de agentes
             gender = values[3]
@@ -457,7 +461,7 @@ class CreateProfile(tk.Frame):
                     },
                     "environment": {
                         "arrival_time_limit": {
-                            "type": self.arrival_type.get(),
+                            "type": values[15],
                             "time": arrival_time,
                             "purpose": purpose
                         },

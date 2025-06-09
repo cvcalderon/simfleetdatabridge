@@ -5,6 +5,7 @@ from tkinter import ttk, messagebox, font
 import simfleetdatabridge.template.utils as utils
 from simfleetdatabridge.template.forms.createprofile import CreateProfile
 from simfleetdatabridge.template.forms.prepareconfig import PrepareSimConfig
+from simfleetdatabridge.template.forms.preparebusconfig import PrepareTransportConfig
 
 class LaunchGUI(tk.Tk):
 
@@ -83,6 +84,11 @@ class LaunchGUI(tk.Tk):
                                              bd=0, bg=utils.COLOR_SIDE_MENU_COLOR, fg="white",
                                              width=menu_width - 2, height=menu_height, command=self.prepare_sim_config)
 
+        self.buttonBusProfile = tk.Button(self.profile_submenu_frame, text="   🔧 Prepare Bus", anchor="w",
+                                             font=universal_font,
+                                             bd=0, bg=utils.COLOR_SIDE_MENU_COLOR, fg="white",
+                                             width=menu_width - 2, height=menu_height, command=self.prepare_bus_config)
+
         # Botón "Simulation"
         self.buttonSimulation = tk.Button(self.side_menu, text="⚙️ Simulation", anchor="w", font=universal_font,
                                           bd=0, bg=utils.COLOR_SIDE_MENU_COLOR, fg="white",
@@ -116,6 +122,7 @@ class LaunchGUI(tk.Tk):
             self.profile_submenu_frame.pack(side=tk.TOP, fill="x", before=self.buttonSimulation)
             self.buttonCreateProfile.pack(side=tk.TOP, padx=15, fill="x")  # Sangría visual
             self.buttonUpdateProfile.pack(side=tk.TOP, padx=15, fill="x")  # Sangría visual
+            self.buttonBusProfile.pack(side=tk.TOP, padx=15, fill="x")  # Sangría visual
         self.profile_expanded = not self.profile_expanded
 
     # Métodos de acción
@@ -133,6 +140,13 @@ class LaunchGUI(tk.Tk):
             widget.destroy()  # Limpiar el contenido anterior
 
         PrepareSimConfig(self.principal_body, self.tree_data).pack(expand=True, fill="both")
+
+    def prepare_bus_config(self):
+        """Carga la interfaz de configuración de simulación en el área principal."""
+        for widget in self.principal_body.winfo_children():
+            widget.destroy()  # Limpiar el contenido anterior
+
+        PrepareTransportConfig(self.principal_body).pack(expand=True, fill="both")
 
     def open_simulation(self):
         print("Simulation Opened")
