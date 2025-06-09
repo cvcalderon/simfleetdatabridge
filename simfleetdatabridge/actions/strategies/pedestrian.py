@@ -24,7 +24,7 @@ class OneShotPedestrianWaitingState(PedestrianStrategyBehaviour):
 
             if self.agent.pedestrian_dest == None:
                 self.agent.pedestrian_dest = self.agent.customer_dest
-                self.agent.set("speed_in_kmh", 300)
+                #self.agent.set("speed_in_kmh", 300)
 
             try:
                 logger.debug(
@@ -156,7 +156,7 @@ class OneShotPedestrianBikeWaitingState(PedestrianStrategyBehaviour):
 
             if self.agent.pedestrian_dest == None:
                 self.agent.pedestrian_dest = self.agent.customer_dest
-                self.agent.set("speed_in_kmh", 900)
+                #self.agent.set("speed_in_kmh", 900)
 
             try:
                 logger.debug(
@@ -288,7 +288,7 @@ class OneShotPedestrianCarWaitingState(PedestrianStrategyBehaviour):
 
             if self.agent.pedestrian_dest == None:
                 self.agent.pedestrian_dest = self.agent.customer_dest
-                self.agent.set("speed_in_kmh", 2000)
+                #self.agent.set("speed_in_kmh", 2000)
 
             try:
                 logger.debug(

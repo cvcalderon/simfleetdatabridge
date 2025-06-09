@@ -112,7 +112,7 @@ class LlmPlanningAgent(OneShotBehaviour):
 
         # Create the structure for the itinerary days.
         days_plan = [
-            {"day": f"Day {i + 1}", "suggested_transport_mode": "", "suggested_departure_time": "HH:MM AM/PM"}
+            {"day": f"Day {i + 1}", "suggested_transport_mode": "only one mode", "suggested_departure_time": "HH:MM AM/PM"}
             for i in range(self.days)
         ]
 

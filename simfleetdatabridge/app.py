@@ -38,6 +38,7 @@ class EngineAgent(Agent, LlmBase):
         self.config = config  # LLM engine config
         self.path = Path(sim_path)  # Simulation Path file
         self.base_dir = Path(sim_path)
+        self.simfleet_backup = None
 
         self.agents_action = {}
         self.reflection = False
@@ -83,7 +84,7 @@ class EngineAgent(Agent, LlmBase):
             "mes": day_context["month_name"]
         }
 
-        for category in ("LlmPedestrianAgent", "TaxiCustomerAgent"):
+        for category in ("LlmPedestrianAgent", "TaxiCustomerAgent", "BusCustomerAgent"):
             for agent_data in sim_metrics.get("DetailedMetrics", {}).get(category, []):
                 agent_name = agent_data["name"].split("@")[0]
 
@@ -124,8 +125,8 @@ class EngineAgent(Agent, LlmBase):
                     "fecha": fecha_info,
                     "departure_time": departure_time,
                     "arrival_time": arrival_time,
-                    "travel_time_min": round(trip_time, 2),
-                    "waiting_time_min": round(waiting_time, 2),
+                    "travel_time_min": round(trip_time / self.scale_ratio, 2),
+                    "waiting_time_min": round(waiting_time / self.scale_ratio, 2),
                     "distance_km": distance_km,
                     "transport_mode": transport_mode,
                     "cost": cost,
@@ -434,6 +435,11 @@ class EngineAgent(Agent, LlmBase):
             fmt = "%I:%M %p"
             arrival_time = datetime.strptime(arrival_time_str, fmt)
             limit_time = datetime.strptime(limit_time_str, fmt)
+
+            res = arrival_time > limit_time
+
+            logger.warning(f"DEBUG: arrival_time: {arrival_time} > limit_time: {limit_time} = {res}")
+
             return arrival_time > limit_time
         except Exception as e:
             logger.warning(f"Error comparando arrival_time con limit_time para {agent_name}: {e}")
@@ -449,6 +455,8 @@ class EngineAgent(Agent, LlmBase):
         self.load_framework_config(self.config) # Load framework config - actions + llm
         self.load_agent_profiles()  # Cargar perfiles
         self.load_memory()  # Cargar memoria
+        #self.set_time_scale(3.35)
+        self.set_time_scale(4.3)
         self.scale_range_time(
             start_time_day=self.environment.get("start_time_day"),
             end_time_day=self.environment.get("end_time_day")
@@ -459,6 +467,8 @@ class EngineAgent(Agent, LlmBase):
 
         self.update_total_days()
         self.count_days_per_week()
+
+        self.build_event_index()
 
         # 1. Inicializar memoria si es necesario
         if not self.memory:
@@ -1042,7 +1052,7 @@ class EngineBehaviour(State):
         # Paso 2: obtener el plan para el día actual
         try:
             today_plan = self.agent.plan[agent_name][week]["days"][day]
-            suggested_transport_mode = today_plan["travel"]["suggested_transport_mode"]
+            suggested_transport_mode = today_plan["travel"]["suggested_transport_mode"].lower()
             suggested_departure_time = today_plan["travel"]["suggested_departure_time"]
         except KeyError:
             logger.error(f"No se encontró plan para el agente '{agent_name}' en el día {day} de la semana '{week}'")
@@ -1058,7 +1068,9 @@ class EngineBehaviour(State):
             "action_name": suggested_transport_mode,
             "class_path": action_data["class_path"],
             "strategy_path": action_data["strategy_path"],
-            "departure_time": suggested_departure_time
+            "departure_time": suggested_departure_time,
+            "line": action_data["line"],
+            "speed": action_data["speed"]
         }
 
     def reset_all_agents_actions(self):
@@ -1084,7 +1096,7 @@ class EngineBehaviour(State):
 
     def store_llm_decision(self, agent_name, reflection):
         context = reflection.get("decision_context", {})
-        suggested_mode = context.get("suggested_transport_mode")
+        suggested_mode = context.get("suggested_transport_mode").lower()
         suggested_departure = context.get("suggested_departure_time")
 
         # Reemplazar el campo "reason" por la reflexión del LLM
@@ -1103,7 +1115,9 @@ class EngineBehaviour(State):
                     "action_name": suggested_mode,
                     "class_path": action_data["class_path"],
                     "strategy_path": action_data["strategy_path"],
-                    "departure_time": suggested_departure
+                    "departure_time": suggested_departure,
+                    "line": action_data["line"],
+                    "speed": action_data["speed"]
                 }
                 logger.info(f"Acción asignada a {agent_name}: {suggested_mode} a las {suggested_departure}")
             else:
@@ -1154,6 +1168,70 @@ class EngineBehaviour(State):
             logger.error(f"Error al obtener weekly_reflections para {agent_name}: {e}")
 
         return result
+
+    #--------------------- Transports backup (taxis) -----------------------------
+
+    def ensure_original_backup(self, simfleet_path: Path):
+        if getattr(self.agent, "simfleet_backup", None) is not None:
+            return  # Ya está en memoria
+
+        # Buscar archivo 0_day_*.json como fuente original
+        for file in os.listdir(simfleet_path):
+            if re.match(r"0_day_.*\.json", file):
+                zero_day_path = simfleet_path / file
+                logger.info(f"[Backup] Cargando respaldo desde '{file}' (día 0).")
+                with open(zero_day_path, "r") as f:
+                    self.agent.simfleet_backup = json.load(f)
+                return
+
+        logger.warning("[Backup] No se encontró archivo '0_day_*.json'. No se pudo crear el respaldo.")
+
+    def restore_taxis_from_backup(self, sim_config):
+        backup = getattr(self.agent, "simfleet_backup", None)
+        if not backup:
+            logger.warning("[TaxiRestore] No hay backup en memoria para restaurar taxis.")
+            return
+
+        original_taxis = [t for t in backup.get("transports", []) if t.get("fleet_type") == "taxi"]
+        other_transports = [t for t in sim_config.get("transports", []) if t.get("fleet_type") != "taxi"]
+        sim_config["transports"] = original_taxis + other_transports
+
+        logger.info(f"[TaxiRestore] Restaurados {len(original_taxis)} taxis desde backup.")
+
+    def apply_strike_taxi_filter(self, sim_config):
+        events_today = self.agent.get_events_for_today()
+
+        # Obtener taxis originales desde el backup (no desde sim_config del día anterior)
+        backup = getattr(self.agent, "simfleet_backup", None)
+        if not backup:
+            logger.warning("[TaxiFilter] No hay backup disponible. No se aplica ningún filtrado.")
+            return
+
+        original_taxis = [t for t in backup.get("transports", []) if t.get("fleet_type") == "taxi"]
+        other_transports = [t for t in sim_config.get("transports", []) if t.get("fleet_type") != "taxi"]
+
+        if not events_today:
+            logger.info("[TaxiFilter] Sin eventos: restaurando taxis desde backup.")
+            sim_config["transports"] = original_taxis + other_transports
+            return
+
+        taxi_strike = next(
+            (e for e in events_today
+             if e.get("category") == "transport"
+             and e.get("subtype") == "strike"
+             and e.get("details", {}).get("transport_type") == "taxi"),
+            None
+        )
+
+        if not taxi_strike:
+            logger.info("[TaxiFilter] No hay huelga de taxis. Restaurando taxis desde backup.")
+            sim_config["transports"] = original_taxis + other_transports
+            return
+
+        affected_ratio = taxi_strike["details"].get("affected_ratio", 0.0)
+        keep_count = max(1, int(len(original_taxis) * (1 - affected_ratio)))
+        logger.info(f"[TaxiFilter] Huelga activa. Taxis activos: {keep_count}/{len(original_taxis)}")
+        sim_config["transports"] = original_taxis[:keep_count] + other_transports
 
     async def run(self):
         """
@@ -1253,62 +1331,55 @@ class EnginePrepareOutputState(EngineBehaviour):
     async def on_start(self):
         await super().on_start()
         self.agent.status = PREPARE_OUTPUT
-        logger.debug("{} in Prepare output State".format(self.agent.jid))
+        logger.debug(f"{self.agent.jid} in Prepare output State")
 
     async def run(self):
-        #logger.info("{} arrived at its destination".format(self.agent.jid))
+        simfleet_path = Path(self.agent.base_dir) / "config/simfleet"
 
-        simfleet_path = os.path.join(self.agent.base_dir, "config/simfleet")
-        simfleet_path = Path(simfleet_path)
-
+        # 1. Cargar configuración del último día (puede estar reducida por huelga anterior)
         day, name, sim_config = self.load_latest_simfleet_config(simfleet_path)
+
+        # 2. Crear backup en memoria desde 0_day_*.json (solo una vez)
+        self.ensure_original_backup(simfleet_path)
+
+        # 3. Aplicar decisiones de los agentes
         decisions = self.agent.agents_action
-
-        #logger.warning("DEBUG 2: {} in Prepare output State".format(decisions))
-
         for customer in sim_config.get("customers", []):
             customer_name = customer.get("name")
-            if customer_name in decisions:
-                decision = decisions[customer_name]
-                # Actualizar delay usando depature_time (conversión a segundos)
-                dep_time = decision.get("departure_time")
-                if dep_time:
-                    customer["delay"] = self.agent.scaled_time_to_real_seconds(str(dep_time))
-                else:
-                    logger.debug(f"Advertencia: No se encontró 'departure_time' para {customer_name}.")
-                # Actualizar class y strategy
-                #logger.warning("DEBUG 2.2: {} ".format(decision.get("class_path", customer.get("class"))))
-                customer["class"] = decision.get("class_path", customer.get("class"))
-                customer["strategy"] = decision.get("strategy_path", customer.get("strategy"))
-                customer["delay"] = self.agent.scaled_time_to_real_seconds(decision.get("departure_time", customer.get("delay")))
-            else:
-                logger.debug(f"Advertencia: No hay decisión para el cliente {customer_name}.")
+            decision = decisions.get(customer_name)
 
+            if not decision:
+                logger.debug(f"Advertencia: No hay decisión para el cliente {customer_name}.")
+                continue
+
+            dep_time = decision.get("departure_time", customer.get("delay"))
+            if dep_time:
+                customer["delay"] = self.agent.scaled_time_to_real_seconds(str(dep_time))
+
+            customer["class"] = decision.get("class_path", customer.get("class"))
+            customer["strategy"] = decision.get("strategy_path", customer.get("strategy"))
+            customer["fleet_type"] = decision.get("action_name", customer.get("action_name"))
+            customer["speed"] = decision.get("speed", customer.get("speed"))
+            customer["line"] = decision.get("line", customer.get("line"))
+
+        # 4. Aplicar huelga de taxis si corresponde (basado en backup original)
+        self.apply_strike_taxi_filter(sim_config)
+
+        # 5. Parametrización general de simulación
         sim_config["max_time"] = self.agent.get_real_seconds_range()
         sim_config["mobility_metrics"] = "simfleetdatabridge.actions.metrics.control.AgentsMobilityClass"
 
+        # 6. Guardar el archivo de salida del nuevo día
         actual_day = self.agent.actual_day + 1
-
-        end_path = os.path.join(simfleet_path, str(actual_day) + "_day_" + name)
-        end_path = Path(end_path)
-        # Verificar si ya existe un archivo para ese día en la carpeta days
-        #dest_file = f"LlmDecisionMaking/Config/days/{self.agent.next_day+1}_day_config_simulation.json"
-        #dest_path = os.path.join(simfleet_path, end_path)
-        if os.path.exists(end_path):
+        end_path = simfleet_path / f"{actual_day}_day_{name}"
+        if end_path.exists():
             logger.debug(f"El archivo para el día {day} ya existe.")
-
         self.agent.path = end_path
 
         with open(end_path, 'w') as f:
             json.dump(sim_config, f, indent=4)
 
-        #self.agent.agents_action = None
-
-        # (Opcional) Si se desea mover en vez de copiar, se puede borrar el original:
-        #os.remove('LlmDecisionMaking/Config/config_simulation.json')
-        #self.agent.stopped = True
         self.set_next_state(RUN_SIMULATION)
-        return
 
 class EngineRunSimulationState(State):
     async def on_start(self):
@@ -1386,6 +1457,8 @@ class EnginePrepareMemoryState(EngineBehaviour):
         # 4. Determinar si es el último día de la semana
         is_last_day = self.agent.is_last_day_of_current_week()
 
+        special_events = self.agent.get_events_for_today()
+
         # 5. Procesar cada agente
         for agent_name in self.agent.profiles.keys():
             try:
@@ -1399,7 +1472,8 @@ class EnginePrepareMemoryState(EngineBehaviour):
                     profile=profile,
                     memory=memory,
                     next_day_plan=next_plan_day,
-                    last_day_week=is_last_day
+                    last_day_week=is_last_day,
+                    special_events= special_events
                 )
 
                 # 7. Guardar reflexión y decisión (si existe)

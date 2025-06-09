@@ -6,6 +6,7 @@ import requests
 import openai
 from datetime import datetime, timedelta
 
+from typing import List, Dict
 
 async def oneshot_request_llm(agent, config=None, prompt=None):
     instance = RequestApiLLM(config, prompt)
@@ -165,7 +166,7 @@ def describe_profile(profile: dict, keys_to_describe: list) -> str:
                 occupation = value.get("occupation", "unknown")
                 annual_income = value.get("annual_income", "unknown")
                 description_parts.append(
-                    f"Hi, I'm a {age}-year-old {gender}. I have a {education} degree and work as an {occupation}. My annual income is {annual_income} $."
+                    f"Hi, I'm a {age}-year-old {gender}. I have a {education} degree and my occupation is an {occupation}. My annual income is {annual_income} $."
                 )
             elif key == "mobility_preferences" and isinstance(value, dict):
                 eco = value.get("eco-consciousness", "unknown")
@@ -257,7 +258,7 @@ def describe_short_memory(short_memory, environment):
             description = (
                 f"On {date_str}, departure was at {departure} and arrival at {arrival}. "
                 f"Mode of transport: {mode}. Duration: {travel_time} minutes (waiting time: {wait_time} min), "
-                f"distance: {distance} km. Cost: ${cost:.2f}. {status} {completion} {punctuality}"
+                f"distance: {distance} km. Cost: ${cost:.2f}. {completion} {punctuality}" #{status} {completion} {punctuality}"
             )
 
         descriptions.append(description.strip())
@@ -351,3 +352,51 @@ def generate_pattern_descriptions(merged_patterns: dict) -> dict:
 
     return descriptions
 
+
+def describe_events(events: List[Dict]) -> List[str]:
+    descriptions = []
+
+    for event in events:
+        name = event.get("name", "Unnamed event")
+        category = event.get("category", "unknown")
+        subtype = event.get("subtype", "")
+        details = event.get("details", {})
+
+        description = f"{name} ({category}/{subtype})."
+
+        if category == "transport":
+            if subtype == "strike":
+                ratio = details.get("affected_ratio", 0)
+                transport_type = details.get("transport_type", "transport")
+                percent = int(ratio * 100)
+                description += f" About {percent}% of the {transport_type} service is expected to be disrupted."
+            elif subtype == "maintenance":
+                line = details.get("line", "unknown line")
+                reduction = int(details.get("reduction_in_service", 0) * 100)
+                description += f" The {line} will operate at {100 - reduction}% capacity due to maintenance."
+        elif category == "weather":
+            subtype = event.get("subtype", "weather event").lower()
+
+            # Base description
+            description += f" A {subtype} is expected."
+
+            # Add details if available
+            if "precipitation_mm" in details:
+                rain = details["precipitation_mm"]
+                description += f" Estimated precipitation: {rain} mm."
+            if "snow_cm" in details:
+                snow = details["snow_cm"]
+                description += f" Snow accumulation may reach {snow} cm."
+            if "wind_speed_kmph" in details:
+                wind = details["wind_speed_kmph"]
+                description += f" Winds could reach up to {wind} km/h."
+            if "temperature_c" in details:
+                temp = details["temperature_c"]
+                description += f" Expected temperature: {temp}°C."
+            if "visibility_km" in details:
+                vis = details["visibility_km"]
+                description += f" Visibility may drop to {vis} km."
+
+        descriptions.append(description)
+
+    return descriptions

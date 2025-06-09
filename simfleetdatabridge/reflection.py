@@ -5,17 +5,18 @@ from simfleetdatabridge.utils import (
     oneshot_request_llm,
     describe_short_memory,
     describe_plan,
-    describe_profile
+    describe_profile,
+    describe_events
 )
 
-async def llm_agent_reflection(agent, profile=None, prompt=None, memory=None, next_day_plan=None, last_day_week=False):
-    instance = LlmReflectionAgent(profile, prompt, memory, next_day_plan, last_day_week)
+async def llm_agent_reflection(agent, profile=None, prompt=None, memory=None, next_day_plan=None, last_day_week=False, special_events=None):
+    instance = LlmReflectionAgent(profile, prompt, memory, next_day_plan, last_day_week, special_events)
     agent.add_behaviour(instance)
     await instance.join()
     return instance.response
 
 class LlmReflectionAgent(OneShotBehaviour):
-    def __init__(self, agent_profile, user_prompt, memory, next_day_plan, last_day_week):
+    def __init__(self, agent_profile, user_prompt, memory, next_day_plan, last_day_week, special_events):
         super().__init__()
         self.steps = user_prompt  # Lista de pasos (puede venir vacía)
         self.memory = memory
@@ -26,6 +27,7 @@ class LlmReflectionAgent(OneShotBehaviour):
         self.next_day_plan = next_day_plan
         self.agent_profile = agent_profile
         self.last_day_week = last_day_week
+        self.special_events = special_events
         self.response = None
 
     def generate_reflection_prompt(self, last_day=False):
@@ -46,6 +48,10 @@ class LlmReflectionAgent(OneShotBehaviour):
         # Descripción del plan (solo si hay plan)
         plan_description = describe_plan(self.next_day_plan) if self.next_day_plan else ""
 
+        # Descripción de eventos especiales
+        event_descriptions = describe_events(self.special_events) if self.special_events else []
+        events_block = "\n".join(event_descriptions) if event_descriptions else "No special events reported."
+
         # Paso adicional obligatorio
         additional_step = {
             "step": len(self.steps) + 1,
@@ -58,7 +64,10 @@ class LlmReflectionAgent(OneShotBehaviour):
 
         # Task y steps adaptados si es el último día de la semana
         if last_day:
-            task = "Reflect on the last travel day of the week. Since there is no upcoming plan, no decision is needed."
+            task = (
+                "Reflect on the last travel day of the week. Since there is no upcoming plan, no decision is needed. "
+                "Consider the section 'special_events', which may include events that could impact travel decisions."
+            )
             evaluation_steps = [step for step in self.steps if "Evaluate Upcoming Plan" not in step["title"]]
             output_structure = {
                 "decision_context": {
@@ -69,7 +78,11 @@ class LlmReflectionAgent(OneShotBehaviour):
                 }
             }
         else:
-            task = "Reflect on the last travel day, evaluate the upcoming plan, and make a data-informed decision based on the user's context and constraints."
+            task = (
+                "Reflect on the last travel day, evaluate the upcoming plan, and make a data-informed decision "
+                "based on the user's context and constraints. Consider the section 'special_events', which may include "
+                "factors that could affect availability or reliability."
+            )
             evaluation_steps = self.steps + [additional_step]
             output_structure = {
                 "decision_context": {
@@ -84,6 +97,7 @@ class LlmReflectionAgent(OneShotBehaviour):
             "user_profile": profile_input,
             "memory": memory_summary,
             "next_day_plan": plan_description if not last_day else None,
+            "special_events": events_block,
             "instructions": {
                 "task": task,
                 "evaluation_steps": evaluation_steps,
@@ -204,17 +218,17 @@ class LlmReflectionAgent(OneShotBehaviour):
                 {
                     "step": 3,
                     "title": "Evaluate Upcoming Plan",
-                    "description": "Analyze the travel plan scheduled for the next day. Consider if it should be adjusted or maintained based on the user's historical data and priorities."
+                    "description": "Compare the planned transport mode and departure time with what worked best in the past. Decide if the plan needs changes based on the user’s preferences and previous outcomes."
                 },
                 {
                     "step": 4,
-                    "title": "Account for External Factors (if any)",
-                    "description": "Consider possible external factors that may influence the user's mobility (e.g., weather, public holidays, strikes, price fluctuations, new mobility policies). If no data is provided, proceed with the available information."
+                    "title": "Consider Special Events or Disruptions",
+                    "description": "Review the 'special_events' section. These may affect transport reliability, safety, or availability. Think about how these disruptions impact your plan, and adjust your recommendation accordingly."
                 },
                 {
                     "step": 5,
-                    "title": "Make and Justify a Decision",
-                    "description": "Propose the most suitable mode of transport and departure time for the next day. **ONLY consider the transport modes listed in 'transport_options'**. Justify your decision based on the user profile, recent experience, and the current plan. If changing the plan, explain clearly why."
+                    "title": "Pick the Best Option and Explain Why",
+                    "description": "Choose the most suitable transport mode and departure time for tomorrow. **Use only the options listed in 'transport_options'**. Your decision must align with the user's preferences, recent travel history, the upcoming plan, and any relevant special events. If you recommend a change to the original plan (mode or time), clearly explain why it improves the outcome."
                 }
             ]
 

@@ -39,6 +39,7 @@ class LlmBase:
 
         self.start_time = None
         self.end_time = None
+        self.scale_ratio = 0
 
         # Session for LLM connection
         self.session = requests.Session()
@@ -138,67 +139,162 @@ class LlmBase:
 
     ######################### Escala Hora Simulacion ##############################
 
-    def seconds_to_scaled_time(self, seconds: int) -> str:
+    # def seconds_to_scaled_time(self, seconds: int) -> str:
+    #     """
+    #     Converts real seconds to scaled time (HH:MM AM/PM).
+    #
+    #     1 real second = 1 scaled minute
+    #     60 real seconds = 1 scaled hour
+    #     1440 real seconds = 24 scaled hours (1 full scaled day)
+    #
+    #     Parameters:
+    #         seconds (int): Number of real seconds to convert. Must be non-negative.
+    #
+    #     Returns:
+    #         str: Scaled time in 'HH:MM AM/PM' format.
+    #     """
+    #     if seconds < 0:
+    #         raise ValueError("Seconds cannot be negative.")
+    #
+    #     scaled_minutes = seconds  # Each real second equals 1 scaled minute
+    #     hours_24 = (scaled_minutes // 60) % 24  # Keep the format within 24 hours
+    #     minutes = scaled_minutes % 60
+    #
+    #     # Convert 24-hour format to 12-hour format with AM/PM
+    #     period = "AM" if hours_24 < 12 else "PM"
+    #     hours_12 = hours_24 % 12
+    #     if hours_12 == 0:
+    #         hours_12 = 12  # Convert 00:xx to 12:xx AM
+    #
+    #     return f"{hours_12:02}:{minutes:02} {period}"
+    #
+    # def scaled_time_to_seconds(self, scaled_time: str) -> int:
+    #     """
+    #     Converts a scaled time (HH:MM AM/PM) to real seconds.
+    #
+    #     1 scaled minute = 1 real second
+    #     1 scaled hour = 60 real seconds
+    #     24 scaled hours = 1440 real seconds (1 full scaled day)
+    #
+    #     Parameters:
+    #         scaled_time (str): Scaled time in 'HH:MM AM/PM' format.
+    #
+    #     Returns:
+    #         int: Equivalent time in real seconds.
+    #     """
+    #     try:
+    #         # Convert to 24-hour format using datetime
+    #         time_obj = datetime.strptime(scaled_time, "%I:%M %p")
+    #         hours, minutes = time_obj.hour, time_obj.minute
+    #
+    #         return ((hours * 60) + minutes) * 1  # Convert to total scaled minutes
+    #     except ValueError:
+    #         raise ValueError("Invalid input format. Expected 'HH:MM AM/PM'.")
+    #
+    #
+    #
+    # def scale_range_time(self, start_time_day: str, end_time_day: str):
+    #     """
+    #     Initializes the time scaler with a range of hours.
+    #
+    #     Parameters:
+    #         start_time_day (str): Start time of the simulated day in "HH:MM AM/PM" format.
+    #         end_time_day (str): End time of the simulated day in "HH:MM AM/PM" format.
+    #     """
+    #     self.start_time = self._convert_to_minutes(start_time_day)
+    #     self.end_time = self._convert_to_minutes(end_time_day)
+    #
+    #     if self.start_time >= self.end_time:
+    #         raise ValueError("The start time must be earlier than the end time.")
+    #
+    # def _convert_to_minutes(self, time_str: str) -> int:
+    #     """Converts a time in 'HH:MM AM/PM' format to minutes since midnight."""
+    #     time_obj = datetime.strptime(time_str, "%I:%M %p")
+    #     return time_obj.hour * 60 + time_obj.minute
+    #
+    # def scaled_time_to_real_seconds(self, scaled_time: str) -> int:
+    #     """
+    #     Converts a scaled time to real seconds since the start of the simulated day.
+    #
+    #     Parameters:
+    #         scaled_time (str): Time in "HH:MM AM/PM" format.
+    #
+    #     Returns:
+    #         int: Real seconds since the start of the day.
+    #     """
+    #     scaled_minutes = self._convert_to_minutes(scaled_time)
+    #     if scaled_minutes < self.start_time or scaled_minutes > self.end_time:
+    #         raise ValueError(f"{scaled_time} is out of the defined range ({self.start_time}-{self.end_time} min).")
+    #
+    #     return (scaled_minutes - self.start_time) * 1  # 1 scaled min = 1 real sec
+    #
+    # def real_seconds_to_scaled_time(self, real_seconds: float) -> str:
+    #     """
+    #     Converts real seconds to a scaled time within the defined range.
+    #
+    #     Parameters:
+    #         real_seconds (float): Time in real seconds.
+    #
+    #     Returns:
+    #         str: Scaled time in "HH:MM AM/PM" format.
+    #     """
+    #     # 1 real second = 1 scaled minute
+    #     scaled_minutes = round(real_seconds * 1)  # Direct scaling
+    #
+    #     # Calculate new scaled time
+    #     new_scaled_time = self.start_time + scaled_minutes
+    #
+    #     # Convert to HH:MM AM/PM format
+    #     hours = (new_scaled_time // 60) % 24
+    #     minutes = new_scaled_time % 60
+    #
+    #     return datetime.strptime(f"{hours}:{minutes}", "%H:%M").strftime("%I:%M %p")
+    #
+    # def get_real_seconds_range(self) -> int:
+    #     """
+    #     Gets the real seconds required to simulate the scaled time range.
+    #
+    #     Returns:
+    #         int: Real seconds required to simulate the defined range.
+    #     """
+    #     total_scaled_minutes = self.end_time - self.start_time
+    #     return total_scaled_minutes * 1  # 1 scaled minute = 1 real second
+
+    def set_time_scale(self, real_seconds_per_sim_minute: float):
         """
-        Converts real seconds to scaled time (HH:MM AM/PM).
-
-        1 real second = 1 scaled minute
-        60 real seconds = 1 scaled hour
-        1440 real seconds = 24 scaled hours (1 full scaled day)
-
-        Parameters:
-            seconds (int): Number of real seconds to convert. Must be non-negative.
-
-        Returns:
-            str: Scaled time in 'HH:MM AM/PM' format.
+        Define cuántos segundos reales equivalen a 1 minuto simulado.
         """
-        if seconds < 0:
-            raise ValueError("Seconds cannot be negative.")
+        self.scale_ratio = real_seconds_per_sim_minute
 
-        scaled_minutes = seconds  # Each real second equals 1 scaled minute
-        hours_24 = (scaled_minutes // 60) % 24  # Keep the format within 24 hours
+    def seconds_to_scaled_time(self, seconds: float) -> str:
+        """
+        Convierte segundos reales a hora simulada 'HH:MM AM/PM'.
+        """
+        scaled_minutes = round(seconds / self.scale_ratio)
+        hours_24 = (scaled_minutes // 60) % 24
         minutes = scaled_minutes % 60
 
-        # Convert 24-hour format to 12-hour format with AM/PM
         period = "AM" if hours_24 < 12 else "PM"
         hours_12 = hours_24 % 12
         if hours_12 == 0:
-            hours_12 = 12  # Convert 00:xx to 12:xx AM
+            hours_12 = 12
 
         return f"{hours_12:02}:{minutes:02} {period}"
 
-    def scaled_time_to_seconds(self, scaled_time: str) -> int:
+    def scaled_time_to_seconds(self, scaled_time: str) -> float:
         """
-        Converts a scaled time (HH:MM AM/PM) to real seconds.
-
-        1 scaled minute = 1 real second
-        1 scaled hour = 60 real seconds
-        24 scaled hours = 1440 real seconds (1 full scaled day)
-
-        Parameters:
-            scaled_time (str): Scaled time in 'HH:MM AM/PM' format.
-
-        Returns:
-            int: Equivalent time in real seconds.
+        Convierte una hora simulada 'HH:MM AM/PM' a segundos reales.
         """
         try:
-            # Convert to 24-hour format using datetime
             time_obj = datetime.strptime(scaled_time, "%I:%M %p")
-            hours, minutes = time_obj.hour, time_obj.minute
-
-            return ((hours * 60) + minutes) * 1  # Convert to total scaled minutes
+            total_minutes = time_obj.hour * 60 + time_obj.minute
+            return total_minutes * self.scale_ratio
         except ValueError:
             raise ValueError("Invalid input format. Expected 'HH:MM AM/PM'.")
 
-
-
     def scale_range_time(self, start_time_day: str, end_time_day: str):
         """
-        Initializes the time scaler with a range of hours.
-
-        Parameters:
-            start_time_day (str): Start time of the simulated day in "HH:MM AM/PM" format.
-            end_time_day (str): End time of the simulated day in "HH:MM AM/PM" format.
+        Define el rango horario de la simulación.
         """
         self.start_time = self._convert_to_minutes(start_time_day)
         self.end_time = self._convert_to_minutes(end_time_day)
@@ -207,59 +303,42 @@ class LlmBase:
             raise ValueError("The start time must be earlier than the end time.")
 
     def _convert_to_minutes(self, time_str: str) -> int:
-        """Converts a time in 'HH:MM AM/PM' format to minutes since midnight."""
+        """
+        Convierte 'HH:MM AM/PM' a minutos desde la medianoche.
+        """
         time_obj = datetime.strptime(time_str, "%I:%M %p")
         return time_obj.hour * 60 + time_obj.minute
 
-    def scaled_time_to_real_seconds(self, scaled_time: str) -> int:
+    def scaled_time_to_real_seconds(self, scaled_time: str) -> float:
         """
-        Converts a scaled time to real seconds since the start of the simulated day.
-
-        Parameters:
-            scaled_time (str): Time in "HH:MM AM/PM" format.
-
-        Returns:
-            int: Real seconds since the start of the day.
+        Convierte una hora simulada a segundos reales desde el inicio del día simulado.
         """
         scaled_minutes = self._convert_to_minutes(scaled_time)
-        if scaled_minutes < self.start_time or scaled_minutes > self.end_time:
-            raise ValueError(f"{scaled_time} is out of the defined range ({self.start_time}-{self.end_time} min).")
 
-        return (scaled_minutes - self.start_time) * 1  # 1 scaled min = 1 real sec
+        if scaled_minutes < self.start_time or scaled_minutes > self.end_time:
+            logger.warning(f"{scaled_time} is out of the defined range ({self.start_time}-{self.end_time} min).")
+            return 0
+
+        return (scaled_minutes - self.start_time) * self.scale_ratio
 
     def real_seconds_to_scaled_time(self, real_seconds: float) -> str:
         """
-        Converts real seconds to a scaled time within the defined range.
-
-        Parameters:
-            real_seconds (float): Time in real seconds.
-
-        Returns:
-            str: Scaled time in "HH:MM AM/PM" format.
+        Convierte segundos reales a hora simulada (dentro del rango definido).
         """
-        # 1 real second = 1 scaled minute
-        scaled_minutes = round(real_seconds * 1)  # Direct scaling
-
-        # Calculate new scaled time
+        scaled_minutes = round(real_seconds / self.scale_ratio)
         new_scaled_time = self.start_time + scaled_minutes
 
-        # Convert to HH:MM AM/PM format
         hours = (new_scaled_time // 60) % 24
         minutes = new_scaled_time % 60
 
         return datetime.strptime(f"{hours}:{minutes}", "%H:%M").strftime("%I:%M %p")
 
-    def get_real_seconds_range(self) -> int:
+    def get_real_seconds_range(self) -> float:
         """
-        Gets the real seconds required to simulate the scaled time range.
-
-        Returns:
-            int: Real seconds required to simulate the defined range.
+        Calcula cuántos segundos reales dura tod0 el rango de simulación definido.
         """
         total_scaled_minutes = self.end_time - self.start_time
-        return total_scaled_minutes * 1  # 1 scaled minute = 1 real second
-
-
+        return total_scaled_minutes * self.scale_ratio
 
 ############################### Fechas #######################################
 
@@ -474,3 +553,45 @@ class LlmBase:
         current_week = self.date_week[self.index][0]
         next_week = self.date_week[self.index + 1][0]
         return current_week != next_week
+
+
+############################### Eventos diruptivos #######################################
+
+    def build_event_index(self):
+        """
+        Construye el índice event_by_date desde self.environment["special_events"]
+        """
+        index = {}
+        for event in self.environment.get("special_events", []):
+            for date in event["dates"]:
+                if date not in index:
+                    index[date] = []
+                index[date].append(event["id"])
+        self.environment["event_by_date"] = index
+
+    def get_events_for_today(self):
+        if not hasattr(self, "environment") or not isinstance(self.environment, dict):
+            return None
+
+        day = self.get_current_day()
+        if not day:
+            return None
+
+        day_str = f"{day[2]:04d}-{day[1][1]:02d}-{day[0][1]:02d}"
+
+
+
+        event_ids = self.environment.get("event_by_date", {}).get(day_str, [])
+
+        logger.warning(f"DEBUG: day = '{day}', day_str = {day_str}, event_ids = {event_ids}")
+
+        if not event_ids:
+            return None
+
+        all_events = self.environment.get("special_events", [])
+        if not isinstance(all_events, list):
+            return None
+
+        id_to_event = {e["id"]: e for e in all_events if "id" in e}
+        return [id_to_event[eid] for eid in event_ids if eid in id_to_event] or None
+

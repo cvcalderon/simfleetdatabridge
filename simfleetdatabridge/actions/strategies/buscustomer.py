@@ -56,7 +56,7 @@ class BusCustomerWaitingToMoveState(BusCustomerStrategyBehaviour):
             # Event 2: Trip completion
             self.agent.events_store.emit(
                 event_type="start_route",
-                details={"cost": 1.5, "transport": "bus",
+                details={"cost": 0.85, "transport": "bus",
                          "distance": distance}
             )
 
@@ -151,7 +151,6 @@ class BusCustomerMovingToDestState(BusCustomerStrategyBehaviour):
                         event_type="wait_for_pickup",
                         details={}
                     )
-
 
                     self.set_next_state(CUSTOMER_IN_STOP)
                 else:
