@@ -5,10 +5,12 @@ Credits
 Development Lead
 ----------------
 
-* Javi Palanca <jpalanca@gmail.com>
-* Jaume Jordan
+* Christian Calderón <ccalderon@upv.es>
 
 Contributors
 ------------
 
+* Javi Palanca
 * Pasqual Marti
+* Jaume Jordan
+* Vicente Julián
