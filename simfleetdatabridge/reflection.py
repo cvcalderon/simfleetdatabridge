@@ -18,7 +18,7 @@ async def llm_agent_reflection(agent, profile=None, prompt=None, memory=None, ne
 class LlmReflectionAgent(OneShotBehaviour):
     def __init__(self, agent_profile, user_prompt, memory, next_day_plan, last_day_week, special_events):
         super().__init__()
-        self.steps = user_prompt  # Lista de pasos (puede venir vacía)
+        self.steps = user_prompt  # List of steps (may be empty)
         self.memory = memory
         self.memory_description = True
         self.short_memory_described = None
@@ -31,7 +31,7 @@ class LlmReflectionAgent(OneShotBehaviour):
         self.response = None
 
     def generate_reflection_prompt(self, last_day=False):
-        # Descripción del perfil
+        # Profile description
         profile_description = describe_profile(
             self.agent_profile,
             ["demographics", "mobility_preferences", "environment"]
@@ -42,17 +42,17 @@ class LlmReflectionAgent(OneShotBehaviour):
             "transport_options": self.agent_profile.get("environment", {}).get("transport_options", [])
         } if self.profile_description else {}
 
-        # Descripción de memoria
+        # Memory description
         memory_summary = self.short_memory_described if self.memory_description else ""
 
-        # Descripción del plan (solo si hay plan)
+        # Plan description (only if a plan exists)
         plan_description = describe_plan(self.next_day_plan) if self.next_day_plan else ""
 
-        # Descripción de eventos especiales
+        # Description of special events
         event_descriptions = describe_events(self.special_events) if self.special_events else []
         events_block = "\n".join(event_descriptions) if event_descriptions else "No special events reported."
 
-        # Paso adicional obligatorio
+        # Mandatory additional step
         additional_step = {
             "step": len(self.steps) + 1,
             "title": "Output Strict JSON",
@@ -62,7 +62,7 @@ class LlmReflectionAgent(OneShotBehaviour):
             )
         }
 
-        # Task y steps adaptados si es el último día de la semana
+        # Task and steps adapted if it's the last day of the week
         if last_day:
             task = (
                 "Reflect on the last travel day of the week. Since there is no upcoming plan, no decision is needed. "

@@ -65,17 +65,17 @@ class EngineAgent(Agent, LlmBase):
         return self.stopped
 
     def initialize_memory(self, profiles):
-        """Inicializa la memoria si está vacía."""
+        """Initialize the memory if it is empty."""
         return {agent: {"short_memory": [], "long_memory": {"by_mode": {}, "by_pattern":{}}} for agent in profiles}
 
 
     def update_memory_with_simulation(self, sim_metrics):
-        """Actualiza la memoria del agente con los datos de la simulación del día."""
+        """Update the agent’s memory with the data from today’s simulation."""
 
         try:
             day_context = self.get_day_context()
         except Exception as e:
-            logger.error(f"No se pudo obtener contexto del día actual: {e}")
+            logger.error(f"Could not retrieve context from the current day: {e}")
             return
 
         fecha_info = {
@@ -145,21 +145,21 @@ class EngineAgent(Agent, LlmBase):
 
 
     def persist_memory_to_disk(self):
-        """Guarda la short_memory_history y long_memory por separado."""
+        """Save the short_memory_history and long_memory separately."""
 
         base_path = Path(self.base_dir) / "agents"
         base_path.mkdir(parents=True, exist_ok=True)
 
-        # Guardar short_memory_history (toda la historia episódica)
+        # Save short_memory_history (the entire episodic history).
         memory_path = base_path / "memory.json"
         try:
             with memory_path.open("w") as f:
                 json.dump(self.short_memory_history, f, indent=4)
-            logger.info("Short memory history guardada en memory.json")
+            logger.info("Short memory history saved in memory.json")
         except Exception as e:
-            logger.error(f"Error al guardar short_memory_history: {e}")
+            logger.error(f"Error saving short_memory_history: {e}")
 
-        # Guardar solo la long_memory (resúmenes, patrones, reflexiones)
+        # Save only the long_memory (summaries, patterns, reflections)
         long_memory_path = base_path / "long_memory.json"
         long_memory_data = {
             agent: self.memory[agent].get("long_memory", {})
@@ -169,15 +169,15 @@ class EngineAgent(Agent, LlmBase):
         try:
             with long_memory_path.open("w") as f:
                 json.dump(long_memory_data, f, indent=4)
-            logger.info("Long memory guardada en long_memory.json")
+            logger.info("Long memory saved in long_memory.json")
         except Exception as e:
-            logger.error(f"Error al guardar long_memory: {e}")
+            logger.error(f"Error saving long_memory: {e}")
 
     def archive_simulation_metrics(self):
-        """Mueve simfleet_metrics.json al historial diario y lo elimina."""
+        """Move simfleet_metrics.json to the daily history and delete it."""
         metrics_file = Path("simfleet_metrics.json")
         if not metrics_file.exists():
-            logger.warning("No se encontró el archivo de métricas para archivar.")
+            logger.warning("Metrics file not found for archiving.")
             return
 
         destination_path = Path(self.base_dir) / "metrics/days" / f"{self.actual_day}_day_simfleet_metrics.json"
@@ -187,52 +187,16 @@ class EngineAgent(Agent, LlmBase):
             shutil.copy(metrics_file, destination_path)
             metrics_file.unlink()
         except Exception as e:
-            logger.error(f"Error al mover métricas a {destination_path}: {e}")
+            logger.error(f"Error moving metrics to {destination_path}: {e}")
 
-    def update_long_memory(self, agent_name, entry):
-        """Actualiza long_memory con los datos agregados en short_memory."""
-
-        mode = entry["transport_mode"]
-
-        # Inicializar estructura si no existe
-        if agent_name not in self.memory:
-            self.memory[agent_name] = {"short_memory": [], "long_memory": {"by_mode": {}}}
-
-        if "long_memory" not in self.memory[agent_name]:
-            self.memory[agent_name]["long_memory"] = {"by_mode": {}}
-
-        if mode not in self.memory[agent_name]["long_memory"]["by_mode"]:
-            self.memory[agent_name]["long_memory"]["by_mode"][mode] = {
-                "total_days": 0,
-                "avg_travel_time": 0,
-                "avg_waiting_time": 0,
-                "avg_cost": 0,
-                "reflections": {
-                    "summary": "-",
-                    "adjustment": "-"
-                }
-            }
-
-        mode_data = self.memory[agent_name]["long_memory"]["by_mode"][mode]
-
-        # Actualizar métricas
-        mode_data["total_days"] += 1
-        mode_data["avg_travel_time"] = ((mode_data["avg_travel_time"] * (mode_data["total_days"] - 1)) + entry[
-            "travel_time_min"]) / mode_data["total_days"]
-        mode_data["avg_waiting_time"] = ((mode_data["avg_waiting_time"] * (mode_data["total_days"] - 1)) + entry[
-            "waiting_time_min"]) / mode_data["total_days"]
-        mode_data["avg_cost"] = ((mode_data["avg_cost"] * (mode_data["total_days"] - 1)) + entry["cost"]) / mode_data[
-            "total_days"]
-
-        #logger.warning("DEBUG 3 - Memory: {} ".format(self.memory))
 
     # -------------------------- Patterns ----------------------------
 
     def generate_weekly_patterns(self, agent_name, similarity_threshold=0.15):
         """
-        Genera patrones semanales de comportamiento para un agente específico.
-        Agrupa por días, modos de transporte y ventanas de tiempo.
-        Luego unifica patrones similares dentro del umbral definido.
+        Generate weekly behavior patterns for a specific agent.
+        Group by days, modes of transportation, and time windows.
+        Then merge similar patterns within the defined threshold.
         """
 
         current_week = self.get_current_week_name()
@@ -248,7 +212,7 @@ class EngineAgent(Agent, LlmBase):
         ]
 
         if not week_entries:
-            logger.info(f"No hay entradas completadas para generar patrones en {agent_name}.")
+            logger.info(f"No completed entries to generate patterns in {agent_name}.")
             return
 
         pattern_groups = defaultdict(list)
@@ -314,11 +278,11 @@ class EngineAgent(Agent, LlmBase):
 
     def merge_similar_patterns(self, agent_name, similarity_threshold=0.15):
         """
-        Unifica patrones similares dentro de 'long_memory["by_pattern"]' para un agente.
-        Los patrones se consideran similares si comparten modo, ventana de tiempo, mes,
-        y tienen métricas similares dentro del umbral.
+        Merge similar patterns within 'long_memory["by_pattern"]' for an agent.
+        Patterns are considered similar if they share mode, time window, month,
+        and have similar metrics within the threshold.
 
-        similarity_threshold: porcentaje de variación permitido (0.15 = 15%)
+        similarity_threshold: allowed variation percentage (0.15 = 15%)
         """
         patterns = self.memory[agent_name]["long_memory"].get("by_pattern", {})
         merged = {}
@@ -358,7 +322,7 @@ class EngineAgent(Agent, LlmBase):
                 merged[p1["pattern_id"]] = p1
                 continue
 
-            # Unir días, promedios y eventos
+            # Merge days, averages, and events
             merged_id = self.hash_pattern_key(
                 (agent_name, group[0]["detection"]["time_window"], group[0]["behavior"]["modes_used"]))
             day_names = sorted(set(d for g in group for d in g["detection"]["day_names"]))
@@ -399,7 +363,7 @@ class EngineAgent(Agent, LlmBase):
 
             merged[merged_id] = merged_pattern
 
-        # Reemplazar patrones existentes con los fusionados
+        # Replace existing patterns with the merged ones
         self.memory[agent_name]["long_memory"]["by_pattern"] = merged
 
     # -------------------------- Patterns (Aux) ----------------------------
@@ -442,7 +406,7 @@ class EngineAgent(Agent, LlmBase):
 
             return arrival_time > limit_time
         except Exception as e:
-            logger.warning(f"Error comparando arrival_time con limit_time para {agent_name}: {e}")
+            logger.warning(f"Error comparing arrival_time with limit_time for {agent_name}: {e}")
             return False
 
     async def setup(self):
@@ -453,9 +417,8 @@ class EngineAgent(Agent, LlmBase):
 
         #New simulation
         self.load_framework_config(self.config) # Load framework config - actions + llm
-        self.load_agent_profiles()  # Cargar perfiles
-        self.load_memory()  # Cargar memoria
-        #self.set_time_scale(3.35)
+        self.load_agent_profiles()
+        self.load_memory()
         self.set_time_scale(4.3)
         self.scale_range_time(
             start_time_day=self.environment.get("start_time_day"),
@@ -470,7 +433,7 @@ class EngineAgent(Agent, LlmBase):
 
         self.build_event_index()
 
-        # 1. Inicializar memoria si es necesario
+        # 1. Initialize memory if necessary.
         if not self.memory:
             self.memory = self.initialize_memory(self.get_agent_names())
 
@@ -482,13 +445,6 @@ class EngineAgent(Agent, LlmBase):
         engine_run = FSMEngineBehaviour()
         self.add_behaviour(engine_run)
 
-        # Crear y ejecutar el comportamiento de toma de decisiones
-        #decision_behaviour = DecisionMakingBehaviour(self.config)
-        #self.add_behaviour(decision_behaviour)
-
-        #await decision_behaviour.join()
-        #self.stopped = True
-
 
 class EngineBehaviour(State):
 
@@ -499,129 +455,6 @@ class EngineBehaviour(State):
         logger.debug("Strategy {} started in Engine".format(type(self).__name__))
 
     # --------------------- Pattern -------------------------
-
-
-    def is_delayed_arrival(self, agent_name, arrival_time_str):
-        """
-        Compara la hora de llegada con el límite definido en el perfil del agente.
-        Retorna True si el agente llegó tarde.
-        """
-        if not arrival_time_str:
-            return False  # No llegó, pero eso se analiza por separado como "missed_destination"
-
-        profile = self.get_agent_info(agent_name, "user_profile")
-        if not profile:
-            return False
-
-        limit_time_str = profile.get("environment", {}).get("arrival_time_limit", {}).get("time", None)
-        if not limit_time_str:
-            return False
-
-        try:
-            fmt = "%I:%M %p"
-            arrival_time = datetime.strptime(arrival_time_str, fmt)
-            limit_time = datetime.strptime(limit_time_str, fmt)
-            return arrival_time > limit_time
-        except Exception as e:
-            logger.warning(f"Error comparando arrival_time con limit_time para {agent_name}: {e}")
-            return False
-
-
-
-    def check_options_all_agents(self):
-        all_agents_actions = {}
-
-        # Extraemos los perfiles y las opciones de transporte
-        profile_data = self.agent.profiles  # Información de los perfiles
-        profile_transport_modes = {
-            profile_name: set(profile_info.get("environment", {}).get("transport_options", []))
-            for profile_name, profile_info in profile_data.items()
-        }
-
-        # Obtener todas las acciones posibles
-        available_actions = self.agent.actions  # Diccionario de acciones con class_path y strategy_path
-
-        # Iteramos sobre cada agente
-        for agent_name in self.agent.get_agent_names():
-            memory_agent = self.agent.get_agent_memory_info(agent_name)
-            short_memory = memory_agent.get("short_memory", [])
-
-            # Extraer modos de transporte ya usados
-            used_actions = {entry["transport_mode"] for entry in short_memory if "transport_mode" in entry}
-
-            # Quiero acumular las acciones usadas por el agente. Porque en otra función la memoria corta tiene un umbral de 3 y no aparece todas las opciones usadas
-            #self.used_actions = used_actions
-
-            # **Acumular las acciones previas**
-            if agent_name not in self.agent.agent_used_actions:
-                self.agent.agent_used_actions[agent_name] = set()
-
-            # Agregar las nuevas acciones usadas
-            self.agent.agent_used_actions[agent_name].update(used_actions)
-
-            # Obtener los transportes permitidos según su perfil
-            available_transports = profile_transport_modes.get(agent_name, set())
-
-            # **Si el agente ya ha usado todas sus opciones de transporte, omitirlo**
-            if self.agent.agent_used_actions[agent_name].issuperset(available_transports):
-                logger.info(f"{agent_name} has already used all the transport options. Omitting in this iteration.")
-                continue  # No procesa este agente
-
-            logger.warning(f"DEBUG 1 - profile_transport_modes: {profile_transport_modes}")
-            logger.warning(f"DEBUG 2 - available_transports: {available_transports}")
-            logger.warning(f"DEBUG 3 - used_actions: {used_actions}")
-            #logger.warning(f"DEBUG 4 - accumulated_used_actions: {self.agent.agent_used_actions[agent_name]}")
-
-            # Obtener departure_time válido
-            departure_time = None
-
-            if memory_agent and short_memory:
-                last_departure = short_memory[-1].get("departure_time")
-
-                if last_departure:
-                    departure_time = last_departure
-                    #logger.warning(f"DEBUG 2 - departure_time from memory: {departure_time}")
-                else:
-                    logger.warning(f"{agent_name} has invalid (None) departure_time in last memory entry.")
-            else:
-                logger.warning(f"{agent_name} has no short memory.")
-
-            if not departure_time:
-                arrival_time_limit = profile_data.get(agent_name, {}).get("environment", {}).get("arrival_time_limit",
-                                                                                                 {}).get("time")
-
-                if arrival_time_limit:
-                    try:
-                        arrival_time = datetime.strptime(arrival_time_limit, "%I:%M %p")
-                        departure_time = (arrival_time - timedelta(minutes=10)).strftime("%I:%M %p")
-                        logger.info(f"Estimated fallback departure_time for {agent_name}: {departure_time}")
-                    except ValueError:
-                        logger.error(f"Incorrect time format for {agent_name}: {arrival_time_limit}")
-                        departure_time = arrival_time_limit
-                else:
-                    departure_time = arrival_time_limit
-
-            # Filtrar acciones válidas (solo transportes aún no usados)
-            valid_actions = [
-                {
-                    "action_name": action_name,
-                    "class_path": available_actions[action_name]["class_path"],
-                    "strategy_path": available_actions[action_name]["strategy_path"],
-                    "departure_time": str(departure_time)
-                }
-                for action_name in available_transports - used_actions  # Diferencia de conjuntos para excluir usados
-                if action_name in available_actions
-            ]
-            # Metrics
-            self._init_agent_metrics(agent_name)
-            metrics = self.agent.evaluation_metrics[agent_name]
-            metrics["transport_modes_selected"].append(valid_actions[0]["action_name"])
-
-            # Dejar la elección final al LLM
-            if valid_actions:
-                all_agents_actions[agent_name] = valid_actions[0]  # Si hay varias, se elige la primera
-
-        return all_agents_actions
 
     def load_latest_simfleet_config(self, directory: str) -> tuple:
         """
@@ -657,7 +490,7 @@ class EngineBehaviour(State):
             match = pattern.match(file)
             if match:
                 days = int(match.group(1))
-                clean_name = match.group(2)  # Parte del nombre sin el número de días y "_day_"
+                clean_name = match.group(2)  # Part of the name without the number of days and "day"
                 if days > latest_days:
                     latest_days = days
                     latest_config = file
@@ -681,311 +514,9 @@ class EngineBehaviour(State):
             raise ValueError(f"Error loading JSON file: {latest_config_path}")
 
 
-    def new_generate_travel_prompt(self, agent_id, agent_profile, agent_memory, task, steps):
-
-        prompt = {
-            agent_id: {
-                "user_profile": agent_profile,
-                "travel_memory": agent_memory,
-                "instructions": {
-                    "task": task,
-                    "evaluation_steps": [
-                        steps,
-                        {
-                            "step": len(steps+1),
-                            "title": "Output Strict JSON",
-                            "description": "Respond ONLY with a valid JSON that matches the required structure. DO NOT add any text, python code, explanation, or markdown."
-                        }
-                    ],
-                    "output_requirements": {
-                        "format": "**STRICT JSON ONLY**.",
-                        "structure": {
-                            "reflections": {
-                                "summary": "Provide a summary of key reflections from historical data (long_memory), including insights from previous travel experiences.",
-                                "adjustment": "Describe any suggested adjustments for future trips, particularly regarding time management and mode selection."
-                            },
-                            "next_day_decision": {
-                                "suggested_departure_time": "HH:MM AM/PM",
-                                "suggested_transport_mode": "Only modes included in 'transport_options'",
-                                "reason": "Explain the reasoning behind the decision, referencing profile constraints, historical performance, and whether a new mode is being tested."
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return json.dumps(prompt, indent=4)
-
-
-
-    def generate_travel_prompt(self, agent_id, agent_profile, agent_memory):
-
-        prompt = {
-            agent_id: {
-                "user_profile": agent_profile,
-                "travel_memory": agent_memory,
-                "instructions": {
-                    "task": "Your role is to analyze the user's travel history and determine the optimal transportation mode for the upcoming day, while also exploring viable alternatives when appropriate. **Only modes included in 'transport_options' should be considered**. Your decision should be informed by past experiences ('memory'), aligned with the user's mobility preferences, and responsive to the current environmental context.",
-                    "evaluation_steps": [
-                        {
-                            "step": 1,
-                            "title": "Evaluation of Recent Travel (Short Memory)",
-                            "description": "Analyze the most recent day's travel data, including departure and arrival times, travel time, waiting time, distance and cost. If the type is 'strict', any arrival after the limit is considered late. If the type is 'flexible', allow a reasonable margin. Also analyze whether the travel time is consistent and corresponds to the distance ('distance_km')."
-                        },
-                        {
-                            "step": 2,
-                            "title": "Assessment of Aggregated Data (Long Memory)",
-                            "description": "Review the historical performance of each transportation mode based on average travel time, waiting time, cost, and reflections. Identify which modes have shown consistent performance and which have been problematic."
-                        },
-                        {
-                            "step": 3,
-                            "title": "Exploration of Alternative Options",
-                            "description": "If a transportation mode has insufficient historical data or has not been used recently, prioritize testing it to gather experience. If the current optimal choice has been consistently used, explore an alternative mode at a reasonable frequency."
-                        },
-                        {
-                            "step": 4,
-                            "title": "Decision-Making for the Next Day",
-                            "description": "Select the best transportation mode based on available data. If a new alternative is being explored. Any suggested alternative must be compatible with the user's profile, the type of event, and the acceptable level of risk (e.g., avoid unnecessary risks if the event is 'strict')."
-                        },
-                        {
-                            "step": 5,
-                            "title": "Output Strict JSON",
-                            "description": "Respond ONLY with a valid JSON that matches the required structure. DO NOT add any text, python code, explanation, or markdown."
-                        }
-                    ],
-                    "output_requirements": {
-                        "format": "**STRICT JSON ONLY**.",
-                        "structure": {
-                            "reflections": {
-                                "summary": "Provide a summary of key reflections from historical data (long_memory), including insights from previous travel experiences.",
-                                "adjustment": "Describe any suggested adjustments for future trips, particularly regarding time management and mode selection."
-                            },
-                            "next_day_decision": {
-                                "suggested_departure_time": "HH:MM AM/PM",
-                                "suggested_transport_mode": "Only modes included in 'transport_options'",
-                                "reason": "Explain the reasoning behind the decision, referencing profile constraints, historical performance, and whether a new mode is being tested."
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return json.dumps(prompt, indent=4)
-
-    #Metrics
-    def _init_agent_metrics(self, agent_name):
-        if agent_name not in self.agent.evaluation_metrics:
-            self.agent.evaluation_metrics[agent_name] = {
-                "valid_json_count": 0,
-                "total_responses": 0,
-                "reasoned_correctly_count": 0,
-                "response_times_sec": [],
-                "transport_modes_selected": []
-            }
-
-
-
-    async def decision_making(self, agent_name, profile, past_memory):
-        """
-        Calls the LLM to determine the best transport mode for the next day.
-        """
-        max_attempts = 3
-        attempt = 0
-        decision = None
-
-        # Generar el nuevo prompt con la estructura actualizada
-        prompt = self.generate_travel_prompt(agent_name, profile, past_memory)
-
-        #Metrics
-        self._init_agent_metrics(agent_name)
-
-        logger.warning(f"DEBUG prompt: {prompt}")
-
-        while attempt < max_attempts:
-            attempt += 1
-            logger.warning(f"Attempt #{attempt} to get valid decision for {agent_name}")
-
-            #Metrics
-            start_time = time.time()
-
-            # Llamada al LLM - Abre y cierra conexión
-            decision = await oneshot_request_llm(self.agent, config=self.agent.model_config, prompt=prompt)
-
-            #Metrics
-            end_time = time.time()
-            response_time = end_time - start_time
-
-            metrics = self.agent.evaluation_metrics[agent_name]
-            metrics["total_responses"] += 1
-            metrics["response_times_sec"].append(response_time)
-
-            is_structured = self.is_valid_structure(decision)
-            if is_structured:
-                metrics["valid_json_count"] += 1
-
-                is_reasoned = self.is_valid_decision(decision, profile, self.agent.actions)
-                if is_reasoned:
-                    metrics["reasoned_correctly_count"] += 1
-                    # Guardar el modo de transporte elegido si es válido
-                    transport_mode = decision["next_day_decision"]["suggested_transport_mode"].lower()
-                    metrics["transport_modes_selected"].append(transport_mode)
-                    logger.warning(f"DEBUG Transport mode: {transport_mode}")
-
-
-            logger.warning(f"DEBUG decisión: {decision}")
-
-            if decision and self.is_valid_structure(decision) and self.is_valid_decision(
-                    decision,
-                    profile,
-                    self.agent.actions
-            ):
-
-                break  # Decisión válida
-            else:
-                decision = None  # Forzamos fallback
-
-        if decision is None:
-            # Recuperamos la short_memory como en check_options_all_agents
-            memory_agent = self.agent.get_agent_memory_info(agent_name)
-            short_memory = memory_agent.get("short_memory", []) if memory_agent else []
-
-            # Valores por defecto
-            last_mode = "walk"
-            last_time = "06:30 AM"
-            day = self.agent.actual_day
-
-            if short_memory:
-                last_entry = short_memory[-1]
-                last_mode = last_entry.get("transport_mode", last_mode)
-                last_time = last_entry.get("departure_time", last_time)
-                day = str(last_entry.get("day", day) - 1)
-
-            decision = {
-                "reflections": {
-                    "summary": "-",
-                    "adjustment": "-"
-                },
-                "next_day_decision": {
-                    "suggested_departure_time": last_time,
-                    "suggested_transport_mode": last_mode,
-                    "reason": f"LLM response was invalid, empty, or failed parsing. Fallback logic used previous mode: {last_mode} of day {day}."
-                }
-            }
-
-            logger.warning(f"DEBUG Fallback based on short_memory: {decision}")
-
-            #Metrics
-            metrics["transport_modes_selected"].append("fallback")
-
-        return decision
-
-
-    def update_reflection_memory(self, agent_name, llm_response):
-        if agent_name not in self.agent.memory:
-            raise ValueError(f"Agent {agent_name} not found in memory.")
-
-        agent_data = self.agent.memory[agent_name]
-        short_memory = agent_data["short_memory"]
-        long_memory = agent_data["long_memory"]
-
-        #logger.warning("DEBUG 4.1 - Reflection: {} ".format(agent_data))
-        #logger.warning("DEBUG 4.2 - Reflection: {} ".format(short_memory))
-        #logger.warning("DEBUG 4.3 - Reflection: {} ".format(long_memory))
-
-        if not short_memory:
-            raise ValueError("No short_memory data available to update.")
-
-        # Get the latest entry in short_memory
-        last_entry = short_memory[-1]
-        transport_mode = last_entry["transport_mode"]
-
-        # Update decision_context in the latest short_memory entry
-        last_entry["decision_context"].update({
-            "reason": llm_response["next_day_decision"]["reason"]
-        })
-
-        # Update reflections in the corresponding transport mode in long_memory
-        if transport_mode not in long_memory["by_mode"]:
-            raise ValueError(f"Transport mode {transport_mode} not found in long_memory.")
-
-#        long_memory["by_mode"][transport_mode]["reflections"] = [{
-#            "summary": llm_response["reflections"]["summary"],
-#            "adjustment": llm_response["reflections"]["adjustment"]
-#        }]
-
-        summary = llm_response["reflections"].get("summary", "").strip()
-        adjustment = llm_response["reflections"].get("adjustment", "").strip()
-
-        # Solo actualiza si ambos tienen contenido significativo
-        if summary and summary != "-" and adjustment and adjustment != "-":
-            long_memory["by_mode"][transport_mode]["reflections"] = [{
-                "summary": summary,
-                "adjustment": adjustment
-            }]
-        else:
-            logger.warning(f"Reflections not updated for {transport_mode} due to missing or placeholder values.")
-
-        #SOLUCIONA ESTE PROBLEMA PARA GUARDAR LA MEMORIA A LARGO PLAZO
-
-        # Añadir al historial la short memory
-        #self.agent.long_memory_history[agent_name].append(long_memory["by_mode"][transport_mode]["reflections"])
-
-
-
-    def is_valid_structure(self, decision: dict) -> bool:
-        try:
-            required_structure = {
-                "reflections": ["summary", "adjustment"],
-                "next_day_decision": ["suggested_departure_time", "suggested_transport_mode", "reason"]
-            }
-
-            for section, keys in required_structure.items():
-                if section not in decision:
-                    logger.warning(f"Missing section: '{section}' in decision")
-                    return False
-                for key in keys:
-                    if key not in decision[section]:
-                        logger.warning(f"Missing key: '{key}' in section '{section}'")
-                        return False
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Error checking required keys: {e}")
-            return False
-
-    def is_valid_decision(self, decision, profile, available_actions):
-        try:
-            transport_mode = decision["travel_plan"]["suggested_transport_mode"].lower()
-            departure_time = decision["travel_plan"]["suggested_departure_time"]
-
-            # Validar transporte
-            valid_transports = set(profile.get("environment", {}).get("transport_options", []))
-            if transport_mode not in valid_transports or transport_mode not in available_actions:
-                logger.warning(f"Invalid transport mode suggested: {transport_mode}")
-                return False
-
-            # Validar hora de salida
-            departure_minutes = self.agent._convert_to_minutes(departure_time)
-
-            if not (self.agent.start_time <= departure_minutes <= self.agent.end_time):
-                logger.warning(
-                    f"Departure time {departure_time} ({departure_minutes} min) is outside allowed range "
-                    f"({self.agent.start_time}-{self.agent.end_time} min)."
-                )
-                return False
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Error validating LLM decision: {e}")
-            return False
-
     def get_next_day_plan(self, agent_name):
         """
-        Devuelve el plan del día siguiente para un agente específico.
+        Return the next day's plan for a specific agent.
         """
         current_index = self.agent.index
 
@@ -995,14 +526,14 @@ class EngineBehaviour(State):
         next_day_info = self.agent.date_week[current_index + 1]
         next_week = next_day_info[0]
 
-        # CORREGIDO: Extraer el número de día de ("Wednesday", 2)
+        # CORRECTED: Extract the day number from ("Wednesday", 2)
         try:
             next_day_number = str(next_day_info[1][0][1])  # <- día numérico
-            logger.debug(f"Intentando obtener plan para {agent_name} - {next_week} día {next_day_number}")
+            logger.debug(f"Attempting to get plan for {agent_name} - {next_week} day {next_day_number}")
             next_day_plan = self.agent.plan[agent_name][next_week]["days"][next_day_number]
             return next_day_plan
         except KeyError:
-            logger.warning(f"No hay plan registrado para {agent_name} en {next_week}, día {next_day_number}.")
+            logger.warning(f"No plan registered for {agent_name} on {next_week}, day {next_day_number}.")
             return None
 
     def save_travel_plan(self, agent_name, plan):
@@ -1011,11 +542,11 @@ class EngineBehaviour(State):
             self.agent.plan = {}
 
         self.agent.plan[agent_name] = {}
-        aux_index = self.agent.index  # Índice auxiliar que no altera self.index
+        aux_index = self.agent.index  # Auxiliary index that does not modify self.index
 
         for day_plan in plan["travel_plan"]["days"]:
             if aux_index >= len(self.agent.date_week):
-                break  # Evitar desbordamiento
+                break  # Prevent overflow
 
             week, [(day_name, day), (month_name, month), year] = self.agent.date_week[aux_index]
 
@@ -1037,33 +568,33 @@ class EngineBehaviour(State):
                 }
             }
 
-            aux_index += 1  # Avanzamos solo el índice auxiliar
+            aux_index += 1  # We only advance the auxiliary index.
 
 
     def set_agent_action_for_today(self, agent_name):
         if not hasattr(self.agent, "agents_action"):
             self.agent.agents_action = {}
 
-        # Paso 1: obtener el contexto del día actual
+        # Step 1: Get the context of the current day.
         day_context = self.agent.get_day_context()
         week = day_context["week"]
-        day = str(day_context["day"])  # la clave en el plan es string
+        day = str(day_context["day"])
 
-        # Paso 2: obtener el plan para el día actual
+        # Step 2: Get the plan for the current day.
         try:
             today_plan = self.agent.plan[agent_name][week]["days"][day]
             suggested_transport_mode = today_plan["travel"]["suggested_transport_mode"].lower()
             suggested_departure_time = today_plan["travel"]["suggested_departure_time"]
         except KeyError:
-            logger.error(f"No se encontró plan para el agente '{agent_name}' en el día {day} de la semana '{week}'")
+            logger.error(f"No plan found for the agent '{agent_name}' in the day {day} of the week '{week}'")
 
-        # Paso 3: obtener configuración de acción para ese modo de transporte
+        # Step 3: Get action configuration for that mode of transportation.
         if suggested_transport_mode not in self.agent.actions:
-            logger.error(f"Modo de transporte '{suggested_transport_mode}' no está definido en self.agent.actions")
+            logger.error(f"Transport mode '{suggested_transport_mode}' is not defined in self.agent.actions")
 
         action_data = self.agent.actions[suggested_transport_mode]
 
-        # Paso 4: asignar configuración a agents_action
+        # Step 4: Assign configuration to agents_action.
         self.agent.agents_action[agent_name] = {
             "action_name": suggested_transport_mode,
             "class_path": action_data["class_path"],
@@ -1073,25 +604,19 @@ class EngineBehaviour(State):
             "speed": action_data["speed"]
         }
 
-    def reset_all_agents_actions(self):
-        """
-        Elimina todas las acciones configuradas previamente para los agentes.
-        """
-        self.agent.agents_action = {}
-
     # ---------------------- Memory state --------------------------
 
     def load_simulation_metrics(self):
         metrics_file = Path('simfleet_metrics.json')
         if not metrics_file.exists():
-            logger.error("El archivo simfleet_metrics.json no existe.")
+            logger.error("The file simfleet_metrics.json does not exist.")
             return None
 
         try:
             with metrics_file.open('r') as f:
                 return json.load(f)
         except json.JSONDecodeError as e:
-            logger.error(f"Error al parsear JSON: {e}")
+            logger.error(f"Error parsing JSON: {e}")
             return None
 
     def store_llm_decision(self, agent_name, reflection):
@@ -1099,15 +624,15 @@ class EngineBehaviour(State):
         suggested_mode = context.get("suggested_transport_mode").lower()
         suggested_departure = context.get("suggested_departure_time")
 
-        # Reemplazar el campo "reason" por la reflexión del LLM
+        # Replace the "reason" field with the LLM’s reflection.
         try:
             last_entry = self.agent.memory[agent_name]["short_memory"][-1]
             last_entry["decision_context"]["reason"] = context.get("reflection", "-")
-            logger.debug(f"Reflexión añadida a short_memory de {agent_name}")
+            logger.debug(f"Reflection added to short_memory of {agent_name}")
         except Exception as e:
-            logger.warning(f"No se pudo añadir reflexión a short_memory de {agent_name}: {e}")
+            logger.warning(f"Could not add reflection to short_memory of {agent_name}: {e}")
 
-        # Guardar acción si corresponde
+        # Save action if applicable.
         if suggested_mode and suggested_departure:
             action_data = self.agent.actions.get(suggested_mode)
             if action_data:
@@ -1119,11 +644,11 @@ class EngineBehaviour(State):
                     "line": action_data["line"],
                     "speed": action_data["speed"]
                 }
-                logger.info(f"Acción asignada a {agent_name}: {suggested_mode} a las {suggested_departure}")
+                logger.info(f"Action assigned to {agent_name}: {suggested_mode} to the {suggested_departure}")
             else:
-                logger.warning(f"Modo '{suggested_mode}' no reconocido para {agent_name}")
+                logger.warning(f"Mode '{suggested_mode}' not recognized for {agent_name}")
         else:
-            logger.info(f"No se asignó acción para {agent_name} (último día de la semana o sin decisión)")
+            logger.info(f"No action assigned for {agent_name} (last day of the week or no decision)")
 
 
     def store_weekly_summary_or_patterns(self, agent_name, reflection):
@@ -1133,24 +658,24 @@ class EngineBehaviour(State):
                 "week": self.agent.get_current_week_name(),
                 "summary": summary
             })
-            logger.info(f"Resumen semanal guardado para {agent_name}")
+            logger.info(f"Weekly summary saved for {agent_name}")
         else:
             try:
                 self.agent.generate_weekly_patterns(agent_name)
                 self.agent.merge_similar_patterns(agent_name)
-                logger.info(f"Patrones generados para {agent_name}")
+                logger.info(f"Patterns generated for {agent_name}")
             except Exception as e:
-                logger.error(f"Error al generar patrones para {agent_name}: {e}")
+                logger.error(f"Error generating patterns for {agent_name}: {e}")
 
     def get_weekly_reflections_dict(self, agent_name):
         """
-        Devuelve un diccionario con los nombres de semana como claves
-        y el contenido de los resúmenes como valores.
+        Returns a dictionary with week names as keys
+        and the contents of the summaries as values.
 
-        Ejemplo:
+        Example:
         {
-            "week_1": "Contenido del summary 1",
-            "week_2": "Contenido del summary 2"
+        "week_1": "Contents of summary 1",
+        "week_2": "Contents of summary 2"
         }
         """
         result = {}
@@ -1163,9 +688,9 @@ class EngineBehaviour(State):
                 if week and summary:
                     result[week] = summary
         except KeyError:
-            logger.warning(f"No se encontró memoria para el agente {agent_name}.")
+            logger.warning(f"No memory found for the agent {agent_name}.")
         except Exception as e:
-            logger.error(f"Error al obtener weekly_reflections para {agent_name}: {e}")
+            logger.error(f"Error getting weekly_reflections for {agent_name}: {e}")
 
         return result
 
@@ -1173,45 +698,45 @@ class EngineBehaviour(State):
 
     def ensure_original_backup(self, simfleet_path: Path):
         if getattr(self.agent, "simfleet_backup", None) is not None:
-            return  # Ya está en memoria
+            return  # Already in memory.
 
-        # Buscar archivo 0_day_*.json como fuente original
+        # Search for file 0_day_*.json as the original source.
         for file in os.listdir(simfleet_path):
             if re.match(r"0_day_.*\.json", file):
                 zero_day_path = simfleet_path / file
-                logger.info(f"[Backup] Cargando respaldo desde '{file}' (día 0).")
+                logger.info(f"[Backup] Loading backup from '{file}' (day 0).")
                 with open(zero_day_path, "r") as f:
                     self.agent.simfleet_backup = json.load(f)
                 return
 
-        logger.warning("[Backup] No se encontró archivo '0_day_*.json'. No se pudo crear el respaldo.")
+        logger.warning("[Backup] File '0_day_*.json' not found. Could not create backup.")
 
     def restore_taxis_from_backup(self, sim_config):
         backup = getattr(self.agent, "simfleet_backup", None)
         if not backup:
-            logger.warning("[TaxiRestore] No hay backup en memoria para restaurar taxis.")
+            logger.warning("[TaxiRestore] No backup in memory to restore taxis.")
             return
 
         original_taxis = [t for t in backup.get("transports", []) if t.get("fleet_type") == "taxi"]
         other_transports = [t for t in sim_config.get("transports", []) if t.get("fleet_type") != "taxi"]
         sim_config["transports"] = original_taxis + other_transports
 
-        logger.info(f"[TaxiRestore] Restaurados {len(original_taxis)} taxis desde backup.")
+        logger.info(f"[TaxiRestore] Restored {len(original_taxis)} taxis from backup.")
 
     def apply_strike_taxi_filter(self, sim_config):
         events_today = self.agent.get_events_for_today()
 
-        # Obtener taxis originales desde el backup (no desde sim_config del día anterior)
+        # Get original taxis from the backup (not from the previous day's sim_config).
         backup = getattr(self.agent, "simfleet_backup", None)
         if not backup:
-            logger.warning("[TaxiFilter] No hay backup disponible. No se aplica ningún filtrado.")
+            logger.warning("[TaxiFilter] No backup available. No filtering applied.")
             return
 
         original_taxis = [t for t in backup.get("transports", []) if t.get("fleet_type") == "taxi"]
         other_transports = [t for t in sim_config.get("transports", []) if t.get("fleet_type") != "taxi"]
 
         if not events_today:
-            logger.info("[TaxiFilter] Sin eventos: restaurando taxis desde backup.")
+            logger.info("[TaxiFilter] No events: restoring taxis from backup.")
             sim_config["transports"] = original_taxis + other_transports
             return
 
@@ -1224,19 +749,19 @@ class EngineBehaviour(State):
         )
 
         if not taxi_strike:
-            logger.info("[TaxiFilter] No hay huelga de taxis. Restaurando taxis desde backup.")
+            logger.info("[TaxiFilter] No taxi strike. Restoring taxis from backup.")
             sim_config["transports"] = original_taxis + other_transports
             return
 
         affected_ratio = taxi_strike["details"].get("affected_ratio", 0.0)
         keep_count = max(1, int(len(original_taxis) * (1 - affected_ratio)))
-        logger.info(f"[TaxiFilter] Huelga activa. Taxis activos: {keep_count}/{len(original_taxis)}")
+        logger.info(f"[TaxiFilter] Strike active. Active taxis: {keep_count}/{len(original_taxis)}")
         sim_config["transports"] = original_taxis[:keep_count] + other_transports
 
     async def run(self):
         """
             Abstract method that should be implemented in subclasses. This is where the specific strategy of the
-            vehicle will be executed.
+            agent will be executed.
         """
         raise NotImplementedError
 
@@ -1262,7 +787,6 @@ class EngineDecisionMakingState(EngineBehaviour):
         current_week = self.agent.get_current_week_name()
         current_day = self.agent.get_current_day()
         self.agent.actual_week = current_week
-        #self.agent.actual_day = current_day
 
         decision_file = os.path.join(
             self.agent.base_dir, "agents/decisions", f"{current_week}_decisions.json"
@@ -1281,17 +805,15 @@ class EngineDecisionMakingState(EngineBehaviour):
                 profile = self.agent.get_agent_info(agent_name)
                 past_memory = self.agent.get_agent_memory_info(agent_name)
 
-                # Intentamos obtener patrones semanales previos
+                # Attempting to retrieve previous weekly patterns.
                 patterns_dict = self.get_weekly_reflections_dict(agent_name)
 
-                # Solo añadimos "patterns" si hay algo real que analizar
+                # Only add "patterns" if there is something real to analyze.
                 if patterns_dict:
                     profile["patterns"] = patterns_dict
 
                 days_in_week = self.agent.get_days_in_week(current_week)
                 forced_week = current_week == "week_1"
-
-                #logger.warning(f"DEBUG: Days in week:({days_in_week}). Current week: ({current_week}). Week: ({self.agent.summary_week})")
 
                 plan = await llm_agent_plan(
                     self.agent,
@@ -1315,9 +837,6 @@ class EngineDecisionMakingState(EngineBehaviour):
             logger.info(f"[DecisionMaking] Mid-week day: {current_week}")
             logger.info(f"[DecisionMaking] Updating daily actions for agents...")
 
-            #for agent_name in self.agent.profiles.keys():
-            #    self.set_agent_action_for_today(agent_name)
-
         logger.info("[DecisionMaking] Decision process completed for the current day.")
 
         if self.agent.agents_action:
@@ -1336,20 +855,20 @@ class EnginePrepareOutputState(EngineBehaviour):
     async def run(self):
         simfleet_path = Path(self.agent.base_dir) / "config/simfleet"
 
-        # 1. Cargar configuración del último día (puede estar reducida por huelga anterior)
+        # 1. Load configuration from the last day (may be reduced due to previous strike).
         day, name, sim_config = self.load_latest_simfleet_config(simfleet_path)
 
-        # 2. Crear backup en memoria desde 0_day_*.json (solo una vez)
+        # 2. Create backup in memory from 0_day_*.json (only once).
         self.ensure_original_backup(simfleet_path)
 
-        # 3. Aplicar decisiones de los agentes
+        # 3. Apply agents' decisions.
         decisions = self.agent.agents_action
         for customer in sim_config.get("customers", []):
             customer_name = customer.get("name")
             decision = decisions.get(customer_name)
 
             if not decision:
-                logger.debug(f"Advertencia: No hay decisión para el cliente {customer_name}.")
+                logger.warning(f"Warning: No decision for the client {customer_name}.")
                 continue
 
             dep_time = decision.get("departure_time", customer.get("delay"))
@@ -1362,18 +881,18 @@ class EnginePrepareOutputState(EngineBehaviour):
             customer["speed"] = decision.get("speed", customer.get("speed"))
             customer["line"] = decision.get("line", customer.get("line"))
 
-        # 4. Aplicar huelga de taxis si corresponde (basado en backup original)
+        # 4. Apply taxi strike if applicable (based on original backup).
         self.apply_strike_taxi_filter(sim_config)
 
-        # 5. Parametrización general de simulación
+        # 5. General simulation parameterization.
         sim_config["max_time"] = self.agent.get_real_seconds_range()
         sim_config["mobility_metrics"] = "simfleetdatabridge.actions.metrics.control.AgentsMobilityClass"
 
-        # 6. Guardar el archivo de salida del nuevo día
+        # 6. Save the output file for the new day.
         actual_day = self.agent.actual_day + 1
         end_path = simfleet_path / f"{actual_day}_day_{name}"
         if end_path.exists():
-            logger.debug(f"El archivo para el día {day} ya existe.")
+            logger.debug(f"The file for the day {day} already exists.")
         self.agent.path = end_path
 
         with open(end_path, 'w') as f:
@@ -1436,37 +955,37 @@ class EnginePrepareMemoryState(EngineBehaviour):
         logger.debug(f"{self.agent.jid} in Prepare memory State")
 
     async def run(self):
-        """Orquesta la preparación de la memoria de todos los agentes."""
+        """Orchestrate the memory preparation for all agents."""
 
-        # 1. Inicializar memoria si es necesario
+        # 1. Initialize memory if necessary
         if not self.agent.memory:
             self.agent.memory = self.agent.initialize_memory(self.agent.get_agent_names())
 
-        # 2. Cargar métricas
+        # 2. Load metrics.
         metrics = self.load_simulation_metrics()
         if not metrics:
-            logger.error("No se pudo cargar simfleet_metrics.json. Abortando actualización de memoria.")
+            logger.error("Could not load simfleet_metrics.json. Aborting memory update.")
             return
 
-        # 3. Actualizar memoria con datos del día
+        # 3. Update memory with data from the day.
         self.agent.update_memory_with_simulation(metrics)
 
         #self.agent.reset_all_agents_actions()
         self.agent.agents_action = {}
 
-        # 4. Determinar si es el último día de la semana
+        # 4. Determine if it is the last day of the week.
         is_last_day = self.agent.is_last_day_of_current_week()
 
         special_events = self.agent.get_events_for_today()
 
-        # 5. Procesar cada agente
+        # 5. Process each agent.
         for agent_name in self.agent.profiles.keys():
             try:
                 next_plan_day = self.get_next_day_plan(agent_name)
                 memory = self.agent.get_agent_memory_info(agent_name)
                 profile = self.agent.get_agent_info(agent_name)
 
-                # 6. Reflexión diaria o semanal
+                # 6. Daily or weekly reflection.
                 reflection = await llm_agent_reflection(
                     self.agent,
                     profile=profile,
@@ -1476,25 +995,25 @@ class EnginePrepareMemoryState(EngineBehaviour):
                     special_events= special_events
                 )
 
-                # 7. Guardar reflexión y decisión (si existe)
+                # 7. Save reflection and decision (if available).
                 self.store_llm_decision(agent_name, reflection)
 
-                # 8. Si es el último día, guardar resumen o generar patrones
+                # 8. If it is the last day, save summary or generate patterns.
                 if is_last_day:
                     self.store_weekly_summary_or_patterns(agent_name, reflection)
 
             except Exception as e:
                 logger.error(f"Error procesando reflexión para {agent_name}: {e}")
 
-        # 9. Persistir memoria y archivar métricas
+        # 9. Persist memory and archive metrics.
         self.agent.persist_memory_to_disk()
         self.agent.archive_simulation_metrics()
 
         if is_last_day:
             for agent_name in self.agent.profiles.keys():
-                # Opcional: respaldar short memory en el historial (ya se hace, así que esto puede omitirse)
+                # Optional: back up short memory to history (already done, so this can be omitted).
                 self.agent.memory[agent_name]["short_memory"] = []
-                logger.info(f"Short memory limpiada para {agent_name} después de consolidación semanal.")
+                logger.info(f"Short memory cleared for {agent_name} after weekly consolidation.")
 
         #if self.agent.has_next_day():
 
@@ -1502,12 +1021,9 @@ class EnginePrepareMemoryState(EngineBehaviour):
         # self.agent.actual_day = day + 1
         self.agent.actual_day = self.agent.index
 
-        # 10. Transición
+        # 10. Transition
         self.set_next_state(DECISION_MAKING)
         return
-        #else:
-        #    logger.success("[DecisionMaking] Simulation finished successfully.")
-        #    self.agent.stopped = True
 
 
 

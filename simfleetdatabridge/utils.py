@@ -25,7 +25,7 @@ class RequestApiLLM(OneShotBehaviour):
 
     async def run(self):
         if self.config is None:
-            logger.warning("El agente no tiene configuración LLM.")
+            logger.warning("The agent has no LLM configuration.")
             return
 
         use_sdk = self.config.get("use_openai_sdk", True)
@@ -35,9 +35,9 @@ class RequestApiLLM(OneShotBehaviour):
         else:
             await self.call_llm_with_requests(self.config, self.prompt)
 
-        logger.info("El agente recibió la respuesta.")
+        logger.info("The agent received the answer.")
 
-    # ------------------ MODO SDK OpenAI ------------------
+    # ------------------ MODE SDK OpenAI ------------------
 
     async def call_llm_with_sdk(self, config, prompt):
         model = config.get("model")
@@ -48,7 +48,7 @@ class RequestApiLLM(OneShotBehaviour):
         try:
             client = openai.OpenAI(
                 base_url=base_url,
-                api_key=api_key or None  # Permite modelos sin key
+                api_key=api_key or None  # Allows models without key
             )
 
             response = client.chat.completions.create(
@@ -59,15 +59,15 @@ class RequestApiLLM(OneShotBehaviour):
             )
 
             raw_text = response.choices[0].message.content.strip()
-            logger.debug(f"Texto combinado:\n{raw_text}")
+            logger.debug(f"Combined text:\n{raw_text}")
 
             self.response = self.extract_json(raw_text)
 
         except Exception as e:
-            logger.exception(f"Error llamando al LLM con SDK: {e}")
+            logger.exception(f"Error calling LLM with SDK: {e}")
             self.response = None
 
-    # ------------------ MODO requests.post() ------------------
+    # ------------------ MODE requests.post() ------------------
 
     async def call_llm_with_requests(self, config, prompt):
         model = config.get("model")
@@ -84,9 +84,8 @@ class RequestApiLLM(OneShotBehaviour):
             response = requests.post(api_url, json=payload)
             response.raise_for_status()
             response_text = response.text.strip()
-            #logger.debug(f"Respuesta cruda del LLM:\n{response_text}")
 
-            # Extraer fragmentos de tipo "response"
+            # Extract response fragments
             json_fragments = []
             for line in response_text.splitlines():
                 try:
@@ -94,18 +93,18 @@ class RequestApiLLM(OneShotBehaviour):
                     if "response" in parsed_line:
                         json_fragments.append(parsed_line["response"])
                 except json.JSONDecodeError:
-                    logger.warning(f"Línea ignorada no válida: {line}")
+                    logger.warning(f"Invalid ignored line: {line}")
 
             combined_response = "".join(json_fragments).strip()
-            logger.debug(f"Texto combinado:\n{combined_response}")
+            logger.debug(f"Combined text:\n{combined_response}")
 
             self.response = self.extract_json(combined_response)
 
         except Exception as e:
-            logger.exception(f"Error llamando al LLM (requests): {e}")
+            logger.exception(f"Error calling LLM (requests): {e}")
             self.response = None
 
-    # ------------------ Extracción JSON común ------------------
+    # ------------------ Common JSON extraction ------------------
 
     def extract_json(self, text):
         match = re.search(r'\{.*\}', text, re.DOTALL)
@@ -115,25 +114,25 @@ class RequestApiLLM(OneShotBehaviour):
             try:
                 return json.loads(fixed_json)
             except json.JSONDecodeError as e:
-                logger.error(f"Error al decodificar JSON: {e}")
+                logger.error(f"Error decoding JSON: {e}")
         else:
-            logger.error("No se encontró JSON válido en la respuesta.")
+            logger.error("No valid JSON was found in the response..")
         return None
 
     def fix_unbalanced_braces(self, text: str) -> str:
         """
-        Detecta y corrige desbalance de llaves en JSON tipo texto.
+        Detects and corrects key imbalances in text-type JSON.
         """
         open_braces = text.count('{')
         close_braces = text.count('}')
         diff = open_braces - close_braces
 
         if diff > 0:
-            logger.warning(f"Faltan {diff} llaves de cierre en la respuesta JSON. Se agregarán automáticamente.")
+            logger.warning(f"Missing {diff} closing braces in the JSON response. They will be added automatically.")
             text += '}' * diff
         elif diff < 0:
-            logger.warning(f"Sobran {-diff} llaves de cierre en la respuesta JSON. Se intentará corregir.")
-            # Esto es opcional, normalmente no pasa
+            logger.warning(f"There are {-diff} extra closing braces in the JSON response. An attempt will be made to correct it.")
+
             text = text.rstrip('}' * (-diff))
 
         return text
@@ -270,7 +269,7 @@ def describe_plan(day_data):
     travel = day_data.get("travel", {})
     date = day_data.get("date_context", {})
 
-    # Acceso seguro a los valores necesarios
+    # Secure access to the necessary values
     transport_mode = travel.get("suggested_transport_mode", "unspecified transport")
     departure_time = travel.get("suggested_departure_time", "unspecified time")
 
@@ -278,7 +277,7 @@ def describe_plan(day_data):
     month_name = date.get("month_name", "Unknown month")
     day_number = date.get("day", "Unknown date")
 
-    # Construcción del mensaje
+    # Message construction
     description = (
         f"The trip is scheduled for {day_name}, {month_name} {day_number}. "
         f"The mode of transport will be {transport_mode}, "

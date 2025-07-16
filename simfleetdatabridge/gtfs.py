@@ -21,7 +21,7 @@ def normalize_name(name):
     name = re.sub(r'[^a-z0-9_]', '', name)
     return name
 
-# Parte 1 y 2 de transform_gtfs_to_json - completo
+# Part 1 and 2 of transform_gtfs_to_json - complete
 
 def transform_gtfs_to_json(gtfs_data, output_path, selected_lines=None):
 

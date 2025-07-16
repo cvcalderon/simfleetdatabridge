@@ -11,9 +11,9 @@ class LlmPedestrianAgent(PedestrianAgent):
         self.cost = 0
 
     def transport_cost(self, distancia_metros):
-        # Convertir la distancia de metros a kilómetros
+        # Convert the distance from meters to kilometers.
         distancia_km = distancia_metros / 1000.0
-        # Calcular el precio consumo - (km * consumo_litros_por_100km) / 100 * precio diesel por litro
+        # Calculate the consumption cost - (km * consumo_litros_por_100km) / 100 * precio diesel por litro
         precio = ((distancia_km * 4.5) / 100) * 1.25
         self.cost = precio
 

@@ -30,15 +30,14 @@ class AgentsMobilityClass(BaseStatisticsClass):
 
     def llm_pedestrian_metrics(self, events_log: Log) -> dict:
         """
-        Extrae métricas específicas para agentes de tipo LlmPedestrian.
+        Extract specific metrics for agents of type LlmPedestrian.
 
         Args:
-            events_log (Log): Registro de eventos de la simulación.
-
+            events_log (Log): Simulation event log.
         Returns:
-            dict: Diccionario con métricas procesadas.
+            dict: Dictionary with processed metrics.
         """
-        # Filtrar eventos del agente LlmPedestrian
+        # Filter events of the agent LlmPedestrian
         filtered_events = events_log.filter(lambda event: event.class_type == "LlmPedestrianAgent" and
                                                           event.event_type in {"trip_completion",
                                                                                "travel_to_destination"})
@@ -47,21 +46,21 @@ class AgentsMobilityClass(BaseStatisticsClass):
             logger.warning("No relevant events found for LlmPedestrianAgent.")
             return {}
 
-        # Convertir eventos a DataFrame
+        # Convert events to DataFrame
         event_fields = ["name", "timestamp", "event_type", "class_type"]
         details_fields = ["cost", "transport", "distance"]
         dataframe = filtered_events.to_dataframe(event_fields=event_fields, details_fields=details_fields)
 
-        # Calcular tiempo de espera y tiempo de viaje
+        # Calculate waiting time and travel time
         waiting_time = dataframe.groupby("name")["timestamp"].min()
         trip_start = dataframe[dataframe["event_type"] == "travel_to_destination"].groupby("name")["timestamp"].min()
         trip_end = dataframe[dataframe["event_type"] == "trip_completion"].groupby("name")["timestamp"].max()
 
-        # Calcular tiempos en segundos
+        # Calculate times in seconds
         waiting_time = (trip_start - waiting_time)
         trip_time = (trip_end - trip_start)
 
-        # Unir métricas en un DataFrame final
+        # Join metrics in a final DataFrame
         result_df = pd.DataFrame({
             "name": dataframe.groupby("name")["name"].first(),
             "class_type": dataframe.groupby("name")["class_type"].first(),
@@ -90,15 +89,14 @@ class AgentsMobilityClass(BaseStatisticsClass):
 
     def taxi_customer_metrics(self, events_log: Log) -> dict:
         """
-        Extrae métricas específicas para agentes de tipo TaxiCustomerAgent.
+        Extract specific metrics for agents of type TaxiCustomerAgent.
 
         Args:
-            events_log (Log): Registro de eventos de la simulación.
-
+            events_log (Log): Simulation event log.
         Returns:
-            dict: Diccionario con métricas procesadas.
+            dict: Dictionary with processed metrics.
         """
-        # Filtrar eventos del agente TaxiCustomerAgent
+        # Filter TaxiCustomerAgent events
         filtered_events = events_log.filter(lambda event: event.class_type == "TaxiCustomerAgent" and
                                                           event.event_type in {'customer_request', 'customer_pickup',
                                                                                'trip_completion'})
@@ -107,21 +105,21 @@ class AgentsMobilityClass(BaseStatisticsClass):
             logger.warning("No relevant events found for TaxiCustomerAgent.")
             return {}
 
-        # Convertir eventos a DataFrame
+        # Convert events to DataFrame
         event_fields = ["name", "timestamp", "event_type", "class_type"]
         details_fields = ["cost", "transport", "distance"]
         dataframe = filtered_events.to_dataframe(event_fields=event_fields, details_fields=details_fields)
 
-        # Calcular tiempos de espera y viaje
+        # Calculate waiting and travel times
         pivot_df = dataframe.pivot_table(index="name", columns="event_type", values="timestamp", aggfunc="first")
         waiting_time = (pivot_df["customer_pickup"] - pivot_df["customer_request"])
         trip_time = (pivot_df["trip_completion"] - pivot_df["customer_pickup"])
 
-        # Obtener detalles del evento trip_completion
+        # Get details of the trip_completion event
         trip_data = dataframe[dataframe["event_type"] == "trip_completion"].groupby("name")[
             ["timestamp", "cost", "transport", "distance"]].first()
 
-        # Crear DataFrame final con métricas
+        # Create final DataFrame with metrics
         result_df = pd.DataFrame({
             "name": dataframe.groupby("name")["name"].first(),
             "class_type": dataframe.groupby("name")["class_type"].first(),
@@ -151,9 +149,9 @@ class AgentsMobilityClass(BaseStatisticsClass):
 
     def bus_customer_metrics(self, events_log: Log) -> dict:
         """
-        Extrae métricas para agentes BusCustomerAgent con eventos actualizados:
-        - Tiempos basados en wait_for_pickup → customer_pickup → trip_completion
-        - Datos de viaje extraídos desde start_route
+        Extract metrics for BusCustomerAgent agents with updated events:
+        - Times based on wait_for_pickup → customer_pickup → trip_completion.
+        - Trip data extracted from start_route
         """
         filtered_events = events_log.filter(lambda event: event.class_type == "BusCustomerAgent" and
                                                           event.event_type in {
@@ -172,12 +170,12 @@ class AgentsMobilityClass(BaseStatisticsClass):
         details_fields = ["cost", "transport", "distance"]
         df = filtered_events.to_dataframe(event_fields=event_fields, details_fields=details_fields)
 
-        # Tiempos clave
+        # Key times
         pivot_df = df.pivot_table(index="name", columns="event_type", values="timestamp", aggfunc="first")
         waiting_time = pivot_df["customer_pickup"] - pivot_df["wait_for_pickup"]
         trip_time = pivot_df["trip_completion"] - pivot_df["customer_pickup"]
 
-        # Datos del evento "start_route"
+        # start_route" event data
         start_data = df[df["event_type"] == "start_route"].groupby("name")[["cost", "transport", "distance"]].first()
         trip_completion_ts = df[df["event_type"] == "trip_completion"].groupby("name")["timestamp"].first()
 
@@ -194,7 +192,7 @@ class AgentsMobilityClass(BaseStatisticsClass):
 
         self.bus_customer_df = result_df.reset_index(drop=True)
 
-        # Métricas generales
+        # General metrics
         avg_waiting = result_df["waiting_time"].mean()
         avg_trip = result_df["trip_time"].mean()
 
@@ -210,13 +208,13 @@ class AgentsMobilityClass(BaseStatisticsClass):
     def generate_combined_metrics(self, pedestrian_metrics: dict, taxi_metrics: dict, bus_metrics: dict,
                                   file_path: str) -> None:
         """
-        Combina métricas de LlmPedestrian, TaxiCustomerAgent y BusCustomerAgent en un solo JSON.
+        Combines metrics from LlmPedestrian, TaxiCustomerAgent and BusCustomerAgent into a single JSON.
 
         Args:
-            pedestrian_metrics (dict): Métricas de LlmPedestrian.
-            taxi_metrics (dict): Métricas de TaxiCustomerAgent.
-            bus_metrics (dict): Métricas de BusCustomerAgent.
-            file_path (str): Ruta del archivo JSON de salida.
+            pedestrian_metrics (dict): LlmPedestrian metrics.
+            taxi_metrics (dict): TaxiCustomerAgent metrics.
+            bus_metrics (dict): BusCustomerAgent metrics.
+            file_path (str): Output JSON file path.
         """
         combined_json = {
             "SimulationMetrics": {
