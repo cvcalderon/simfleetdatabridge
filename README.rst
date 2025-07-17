@@ -29,7 +29,7 @@ SimfleetDataBridge implements a novel cognitive agent architecture based on LLMs
 If you use SimfleetDataBridge in academic work, please cite:
 
 Calderón, C.; Martí, P.; Jordán, J.; Palanca, J.; Julian, V.
-*Cognitive Agents in Urban Mobility: Integrating LLM Reasoning into Multi-Agent Simulations*. Sensors 2025, 1, 0.
+*Cognitive Agents in Urban Mobility: Integrating LLM Reasoning into Multi-Agent Simulations*.
 
 Requirements
 ------------
@@ -149,7 +149,7 @@ You need three configuration files to create a new simulation:
   Specifies the configuration of the simulation fleets (e.g., buses, taxis) and their properties such as speed, lines, agent classes, strategies, and initial positions.
   **Note:** The GUI only generates the bus-related configuration from GTFS. For other fleet types (e.g., taxis), you must edit the JSON manually.
 
-You can find real examples in the `tests` directory or in this repository.
+You can find real examples in this repository: https://github.com/cvcalderon/simfleetdatabridge_config.
 
 Author & License
 ----------------
