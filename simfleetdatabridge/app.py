@@ -1003,7 +1003,7 @@ class EnginePrepareMemoryState(EngineBehaviour):
                     self.store_weekly_summary_or_patterns(agent_name, reflection)
 
             except Exception as e:
-                logger.error(f"Error procesando reflexión para {agent_name}: {e}")
+                logger.error(f"Error processing reflection for {agent_name}: {e}")
 
         # 9. Persist memory and archive metrics.
         self.agent.persist_memory_to_disk()
