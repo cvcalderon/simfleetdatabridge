@@ -25,7 +25,7 @@ class LaunchGUI(tk.Tk):
 
     def config_window(self):
         self.title("SimfleetAI")
-        self.iconbitmap(utils.absolute_path("./images/icon.ico"))
+        #self.iconbitmap(utils.absolute_path("./images/icon.ico"))
         w, h = 1024, 600
         utils.center_window(self, app_width=w, app_height=h)
 

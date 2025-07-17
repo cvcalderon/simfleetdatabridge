@@ -19,22 +19,10 @@ def main():
     """CLI for managing SimfleetAI and LLM profile generation."""
     pass
 
-
-@click.command(name="generate-llm-profiles")
-@click.option("-input", 'input_path', type=click.Path(exists=True), required=True,
-              help="Path to the input file containing profile data.")
-@click.option("-output", 'output_path', type=click.Path(), required=True,
-              help="Path to the output file where generated profiles will be saved.")
-def generate_llm_profiles(input_path, output_path):
-    """Generates LLM profiles based on input data."""
-
-    logger.info(f'Generating LLM profiles from: {input_path}')
-
-
 @click.command(name="launch-gui")
 def launch_gui_cmd():
     """Launch the GUI for SimfleetAI."""
-    logger.info("Launching SimfleetAI GUI...")
+    logger.info("Launching SimfleetDataBridge GUI...")
     app = LaunchGUI()
     app.mainloop()
 
@@ -50,7 +38,7 @@ def launch_gui_cmd():
 @click.option("--sim-config", type=click.Path(exists=True), required=False,
               help="Path to the Simfleet configuration file (optional, only needed when creating a new simulation).")
 def run_simfleetai(base_dir, name, framework_config, profiles, sim_config):
-    """Runs a simulation with SimfleetAI, creating or loading the simulation as needed."""
+    """Runs a simulation with SimfleetDataBridge, creating or loading the simulation as needed."""
 
     sim_path = Path(base_dir) / name
     is_new_simulation = not sim_path.exists()
@@ -162,9 +150,7 @@ def app_engine(base_dir, name, framework_config):
 
 
 # Add commands to the CLI group
-main.add_command(generate_llm_profiles)
 main.add_command(launch_gui_cmd)
-
 main.add_command(run_simfleetai)
 
 if __name__ == '__main__':
