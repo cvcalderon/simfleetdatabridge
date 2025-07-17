@@ -81,7 +81,7 @@ class RequestApiLLM(OneShotBehaviour):
         }
 
         try:
-            response = requests.post(api_url, json=payload)
+            response = requests.post(api_url, json=payload, verify=False)
             response.raise_for_status()
             response_text = response.text.strip()
 
