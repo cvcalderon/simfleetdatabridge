@@ -122,6 +122,12 @@ You can use SimfleetDataBridge via the command line to run simulations.
         --profiles "profiles.json" \
         --sim-config "simfleet_config.json"
 
+For the simulator to work, you need to run the XMPP message server. To do this, open a new command prompt and run the following command:
+
+.. code-block:: bash
+
+    spade run
+
 Arguments
 ---------
 
